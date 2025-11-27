@@ -1,0 +1,9 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        - GEMINI_API_KEY=${GEMINI_API_KEY}
+    ports:
+      - "8080:80"
+    restart: always

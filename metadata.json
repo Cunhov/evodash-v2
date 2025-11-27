@@ -1,0 +1,5 @@
+{
+  "name": "EvoDash v2",
+  "description": "A comprehensive visual dashboard for EvolutionAPI v2, featuring instance management, message dispatching, and Gemini AI-powered content generation.",
+  "requestFramePermissions": []
+}
