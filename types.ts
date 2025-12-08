@@ -84,3 +84,18 @@ export interface SidebarItem {
   label: string;
   path: string;
 }
+
+export interface Schedule {
+  id?: number;
+  text: string;
+  enviar_em: string;
+  instance: string;
+  api_key: string;
+  group_filter: string;
+  min_size_group: number;
+  mention_everyone: boolean;
+  status: 'pending' | 'sent' | 'failed' | 'cancelled';
+  enviado_em?: string;
+  midia?: string;
+  error_message?: string;
+}

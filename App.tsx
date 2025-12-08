@@ -5,6 +5,7 @@ import ConnectionSetup from './pages/ConnectionSetup';
 import InstanceManager from './pages/InstanceManager';
 import GroupManager from './pages/GroupManager';
 import MessageSender from './pages/MessageSender';
+import Scheduler from './pages/Scheduler';
 import { EvoConfig } from './types';
 import { getStoredConfig } from './services/storage';
 import { LogProvider } from './context/LogContext';
@@ -27,28 +28,29 @@ const App: React.FC = () => {
 
   // Wraps content in LogProvider
   const Content = () => {
-     if (!config) {
-       return <ConnectionSetup onConfigSave={setConfig} />;
-     }
+    if (!config) {
+      return <ConnectionSetup onConfigSave={setConfig} />;
+    }
 
-     return (
-       <Router>
+    return (
+      <Router>
         <Layout>
           <Routes>
             <Route path="/" element={<Navigate to="/instances" replace />} />
             <Route path="/instances" element={<InstanceManager config={config} />} />
             <Route path="/groups" element={<GroupManager config={config} />} />
             <Route path="/send" element={<MessageSender config={config} />} />
+            <Route path="/scheduler" element={<Scheduler config={config} />} />
             <Route path="*" element={<Navigate to="/instances" replace />} />
           </Routes>
         </Layout>
       </Router>
-     );
+    );
   }
 
   return (
     <LogProvider>
-       <Content />
+      <Content />
     </LogProvider>
   );
 };
