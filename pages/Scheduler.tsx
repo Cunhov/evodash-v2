@@ -53,8 +53,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             setSelectedInstance(config.instanceName);
         } else {
             api.fetchInstances().then((data: any) => {
+                console.log('Fetched instances:', data);
                 if (Array.isArray(data)) {
-                    setInstances(data.filter((d: any) => d?.instance?.instanceName || d?.instanceName));
+                    setInstances(data.filter((d: any) => d?.instance?.instanceName || d?.instanceName || d?.name));
                 }
             });
         }
