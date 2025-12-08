@@ -31,10 +31,10 @@ create policy "Public Access"
   on storage.objects for select
   using ( bucket_id = 'schedules' );
 
--- Policy to allow authenticated uploads to schedules bucket
+-- Policy to allow authenticated and anon uploads to schedules bucket
 create policy "Authenticated Upload"
   on storage.objects for insert
-  with check ( bucket_id = 'schedules' AND auth.role() = 'authenticated' );
+  with check ( bucket_id = 'schedules' AND (auth.role() = 'authenticated' OR auth.role() = 'anon') );
 
 -- Create an index on status and enviar_em for faster worker polling
 create index if not exists idx_schedules_status_enviar_em on public.schedules (status, enviar_em);
