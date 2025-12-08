@@ -27,11 +27,15 @@ values ('schedules', 'schedules', true)
 on conflict (id) do nothing;
 
 -- Policy to allow public access to schedules bucket
+-- Policy to allow public access to schedules bucket
+drop policy if exists "Public Access" on storage.objects;
 create policy "Public Access"
   on storage.objects for select
   using ( bucket_id = 'schedules' );
 
 -- Policy to allow authenticated and anon uploads to schedules bucket
+-- Policy to allow authenticated and anon uploads to schedules bucket
+drop policy if exists "Authenticated Upload" on storage.objects;
 create policy "Authenticated Upload"
   on storage.objects for insert
   with check ( bucket_id = 'schedules' AND (auth.role() = 'authenticated' OR auth.role() = 'anon') );
