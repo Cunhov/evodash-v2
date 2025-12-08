@@ -16,6 +16,8 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     // View Mode
     const [view, setView] = useState<'list' | 'create'>('list');
+    const [listFilter, setListFilter] = useState<'pending' | 'history'>('pending');
+    const [editingId, setEditingId] = useState<number | null>(null);
 
     // Data
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -77,10 +79,18 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     // Fetch Schedules
     const fetchSchedules = async () => {
         setLoading(true);
-        const { data, error } = await supabase
+        let query = supabase
             .from('schedules')
             .select('*')
             .order('enviar_em', { ascending: true });
+
+        if (listFilter === 'pending') {
+            query = query.eq('status', 'pending');
+        } else {
+            query = query.neq('status', 'pending');
+        }
+
+        const { data, error } = await query;
 
         if (error) {
             addLog(`Error fetching schedules: ${error.message}`, 'error');
@@ -92,7 +102,32 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     useEffect(() => {
         if (view === 'list') fetchSchedules();
-    }, [view]);
+    }, [view, listFilter]);
+
+    const handleEdit = (schedule: Schedule) => {
+        setEditingId(schedule.id || null);
+        setSelectedInstance(schedule.instance);
+        setMessage(schedule.text);
+
+        const dateObj = new Date(schedule.enviar_em);
+        setScheduleDate(dateObj.toISOString().split('T')[0]);
+        setScheduleTime(dateObj.toTimeString().slice(0, 5));
+
+        setMentionEveryone(schedule.mention_everyone || false);
+        setFilterMinSize(schedule.min_size_group || 0);
+
+        // Parse group filter to restore selection if possible
+        try {
+            const filter = JSON.parse(schedule.group_filter || '{}');
+            if (filter.ids && Array.isArray(filter.ids)) {
+                setSelectedGroupIds(new Set(filter.ids));
+            }
+        } catch (e) {
+            // Ignore parse error
+        }
+
+        setView('create');
+    };
 
     const handleSave = async () => {
         if (!selectedInstance || !message || !scheduleDate || !scheduleTime) {
@@ -113,22 +148,13 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             return;
         }
 
-        // Create filter JSON based on selected IDs (or criteria if we want dynamic)
-        // For this "Messenger-like" UI, we are selecting specific groups, but the backend expects a filter string.
-        // We can store the list of IDs in the filter or just "nameContains" if we want dynamic.
-        // To match the user request "Group Filter", we should probably stick to dynamic filters OR 
-        // if the user selected specific groups, we can store those IDs.
-        // However, the previous logic used dynamic filters. 
-        // Let's support both: if specific groups selected, we filter by ID list.
-
         const groupFilter = JSON.stringify({
             ids: Array.from(selectedGroupIds),
             minSize: filterMinSize
         });
 
         const apiKey = config.apiKey;
-
-        const { error } = await supabase.from('schedules').insert({
+        const payload = {
             text: message,
             enviar_em: dateTime.toISOString(),
             instance: selectedInstance,
@@ -137,14 +163,29 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             min_size_group: filterMinSize,
             mention_everyone: mentionEveryone,
             status: 'pending'
-        });
+        };
+
+        let error;
+        if (editingId) {
+            const { error: updateError } = await supabase
+                .from('schedules')
+                .update(payload)
+                .eq('id', editingId);
+            error = updateError;
+        } else {
+            const { error: insertError } = await supabase
+                .from('schedules')
+                .insert(payload);
+            error = insertError;
+        }
 
         if (error) {
             addLog(`Failed to save schedule: ${error.message}`, 'error');
             alert('Failed to save schedule');
         } else {
-            addLog('Schedule created successfully', 'success');
+            addLog(editingId ? 'Schedule updated' : 'Schedule created', 'success');
             setView('list');
+            setEditingId(null);
             setMessage('');
             setSelectedGroupIds(new Set());
         }
@@ -181,10 +222,10 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                     <p className="text-slate-400">Plan and automate your campaigns.</p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => setView('list')} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'list' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    <button onClick={() => { setView('list'); setEditingId(null); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'list' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Calendar size={18} /> Calendar
                     </button>
-                    <button onClick={() => setView('create')} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    <button onClick={() => { setView('create'); setEditingId(null); setMessage(''); setSelectedGroupIds(new Set()); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Plus size={18} /> New Schedule
                     </button>
                 </div>
@@ -295,7 +336,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                             </div>
 
                             <button onClick={handleSave} disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition">
-                                <Save size={20} /> Schedule Campaign
+                                <Save size={20} /> {editingId ? 'Update Schedule' : 'Schedule Campaign'}
                             </button>
                         </div>
                     </div>
@@ -319,7 +360,10 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             {view === 'list' && (
                 <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
                     <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-                        <h3 className="font-bold text-white">Scheduled Campaigns</h3>
+                        <div className="flex gap-2">
+                            <button onClick={() => setListFilter('pending')} className={`px-3 py-1 rounded text-sm font-medium ${listFilter === 'pending' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-white'}`}>Scheduled</button>
+                            <button onClick={() => setListFilter('history')} className={`px-3 py-1 rounded text-sm font-medium ${listFilter === 'history' ? 'bg-blue-500/20 text-blue-400' : 'text-slate-400 hover:text-white'}`}>History</button>
+                        </div>
                         <button onClick={fetchSchedules} className="text-slate-400 hover:text-white"><RefreshCw size={18} /></button>
                     </div>
                     <div className="overflow-x-auto">
@@ -335,7 +379,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                             </thead>
                             <tbody className="divide-y divide-slate-700">
                                 {schedules.length === 0 ? (
-                                    <tr><td colSpan={5} className="p-8 text-center text-slate-500">No schedules found.</td></tr>
+                                    <tr><td colSpan={5} className="p-8 text-center text-slate-500">No {listFilter} schedules found.</td></tr>
                                 ) : schedules.map(s => (
                                     <tr key={s.id} className="hover:bg-slate-700/30 transition">
                                         <td className="p-4 max-w-xs truncate" title={s.text}>{s.text}</td>
@@ -346,19 +390,24 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                         </td>
                                         <td className="p-4">
                                             <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${s.status === 'sent' ? 'bg-emerald-500/20 text-emerald-400' :
-                                                    s.status === 'failed' ? 'bg-rose-500/20 text-rose-400' :
-                                                        s.status === 'cancelled' ? 'bg-slate-500/20 text-slate-400' :
-                                                            'bg-amber-500/20 text-amber-400'
+                                                s.status === 'failed' ? 'bg-rose-500/20 text-rose-400' :
+                                                    s.status === 'cancelled' ? 'bg-slate-500/20 text-slate-400' :
+                                                        'bg-amber-500/20 text-amber-400'
                                                 }`}>
                                                 {s.status}
                                             </span>
                                             {s.error_message && <div className="text-xs text-rose-500 mt-1 max-w-xs truncate" title={s.error_message}>{s.error_message}</div>}
                                         </td>
-                                        <td className="p-4">
+                                        <td className="p-4 flex gap-2">
                                             {s.status === 'pending' && (
-                                                <button onClick={() => handleDelete(s.id!)} className="text-rose-400 hover:text-rose-300 p-2 rounded hover:bg-rose-500/10">
-                                                    <Trash2 size={16} />
-                                                </button>
+                                                <>
+                                                    <button onClick={() => handleEdit(s)} className="text-blue-400 hover:text-blue-300 p-2 rounded hover:bg-blue-500/10" title="Edit">
+                                                        <FileText size={16} />
+                                                    </button>
+                                                    <button onClick={() => handleDelete(s.id!)} className="text-rose-400 hover:text-rose-300 p-2 rounded hover:bg-rose-500/10" title="Delete">
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </>
                                             )}
                                         </td>
                                     </tr>
