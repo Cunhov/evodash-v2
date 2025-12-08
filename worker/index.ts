@@ -13,8 +13,8 @@ const EVOLUTION_URL = process.env.EVOLUTION_API_URL || process.env.VITE_EVOLUTIO
 console.log('Worker starting...');
 console.log('Configuration:', {
     evolutionUrl: EVOLUTION_URL,
-    supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL ? 'Set' : 'Missing',
-    supabaseKey: process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Missing',
+    supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+    supabaseKey: (process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY)?.substring(0, 5) + '...',
     timezone: process.env.TZ
 });
 console.log('Worker started. Polling for schedules every 5s...');
