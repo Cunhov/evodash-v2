@@ -69,19 +69,18 @@ export const getApiClient = (config: EvoConfig) => {
     sendMessage: async (instance: string, type: MessageType, data: any) => {
       let endpoint = '';
       let body: any = {
-        number: data.number,
-        options: { delay: data.delay || 1200 }
+        number: data.number
       };
 
-      // Add "mentionsEveryOne" if requested
-      if (data.mentionsEveryOne) {
-        if (config.provider === 'uazapi') {
-          // UazApi often expects this inside "options"
-          body.options.mentionsEveryOne = true;
-        } else {
-          // Evolution v2 often expects this at root or options depending on version
-          body.mentionsEveryOne = true;
-        }
+      if (config.provider === 'uazapi') {
+        body.options = {
+          delay: data.delay || 1200,
+          mentionsEveryOne: data.mentionsEveryOne || false
+        };
+      } else {
+        // Standard Evolution v2 (based on user docs)
+        body.delay = data.delay || 1200;
+        if (data.mentionsEveryOne) body.mentionsEveryOne = true;
       }
 
       switch (type) {
