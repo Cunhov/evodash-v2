@@ -245,7 +245,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             const saneFileName = `${name}.${ext}`;
 
             // Evolution API expects "image" or "video" or "document"
-            const mediaType = typeStr === 'video' ? 'video' : 'image';
+            let mediaType = 'image';
+            if (typeStr === 'video') mediaType = 'video';
+            else if (typeStr === 'application' || typeStr === 'text') mediaType = 'document';
 
             payload = {
                 mediatype: mediaType,
