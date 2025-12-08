@@ -22,4 +22,7 @@ if (!supabaseUrl || !supabaseKey) {
     console.warn('Supabase credentials missing or incomplete.');
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseKey || '');
+// Prevent crash if URL is missing (e.g. during build or initial setup)
+export const supabase = (supabaseUrl && supabaseKey)
+    ? createClient(supabaseUrl, supabaseKey)
+    : createClient('https://placeholder.supabase.co', 'placeholder');
