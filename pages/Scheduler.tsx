@@ -240,12 +240,15 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             const typeStr = mediaFile?.type.split('/')[0] || 'image';
             // Sanitize filename: remove special chars, truncate to 50 chars, preserve extension
             const originalName = mediaFile?.name || 'file';
-            const ext = originalName.split('.').pop() || '';
+            const ext = originalName.split('.').pop() || 'png'; // Default to png if no ext
             const name = originalName.replace(`.${ext}`, '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
             const saneFileName = `${name}.${ext}`;
 
+            // Evolution API expects "image" or "video" or "document"
+            const mediaType = typeStr === 'video' ? 'video' : 'image';
+
             payload = {
-                mediatype: typeStr === 'video' ? 'video' : 'image',
+                mediatype: mediaType,
                 mimetype: mediaFile?.type || 'image/png',
                 caption: message,
                 media: mediaUrl,
