@@ -17,6 +17,25 @@ create table if not exists public.schedules (
   constraint schedules_pkey primary key (id)
 );
 
+alter table public.schedules
+add column if not exists type text not null default 'text',
+add column if not exists payload jsonb null;
+
+-- Create Storage Bucket for Schedules
+insert into storage.buckets (id, name, public)
+values ('schedules', 'schedules', true)
+on conflict (id) do nothing;
+
+-- Policy to allow public access to schedules bucket
+create policy "Public Access"
+  on storage.objects for select
+  using ( bucket_id = 'schedules' );
+
+-- Policy to allow authenticated uploads to schedules bucket
+create policy "Authenticated Upload"
+  on storage.objects for insert
+  with check ( bucket_id = 'schedules' AND auth.role() = 'authenticated' );
+
 -- Create an index on status and enviar_em for faster worker polling
 create index if not exists idx_schedules_status_enviar_em on public.schedules (status, enviar_em);
 

@@ -53,13 +53,24 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     // Preview
     const [previewItem, setPreviewItem] = useState<Schedule | null>(null);
 
-    const fileToBase64 = (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-        });
+    const uploadToStorage = async (file: File): Promise<string> => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('schedules')
+            .upload(filePath, file);
+
+        if (uploadError) {
+            throw uploadError;
+        }
+
+        const { data } = supabase.storage
+            .from('schedules')
+            .getPublicUrl(filePath);
+
+        return data.publicUrl;
     };
 
     // AI
@@ -212,13 +223,15 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
         // Construct Payload
         let payload: any = {};
-        let base64Media = '';
+        let mediaUrl = '';
 
         if (mediaFile && (msgType === 'media' || msgType === 'audio')) {
             try {
-                base64Media = await fileToBase64(mediaFile);
-            } catch (e) {
-                alert('Failed to process media file');
+                addLog('Uploading media...', 'info');
+                mediaUrl = await uploadToStorage(mediaFile);
+            } catch (e: any) {
+                addLog(`Failed to upload media: ${e.message}`, 'error');
+                alert(`Failed to upload media: ${e.message}`);
                 return;
             }
         }
@@ -229,11 +242,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                 mediatype: typeStr === 'video' ? 'video' : 'image',
                 mimetype: mediaFile?.type || 'image/png',
                 caption: message,
-                media: base64Media,
+                media: mediaUrl,
                 fileName: mediaFile?.name || 'file'
             };
         } else if (msgType === 'audio') {
-            payload = { audio: base64Media };
+            payload = { audio: mediaUrl };
         } else if (msgType === 'poll') {
             payload = {
                 name: pollName,
