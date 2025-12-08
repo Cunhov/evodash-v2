@@ -10,17 +10,17 @@ export const getApiClient = (config: EvoConfig) => {
   const getUrl = (path: string, instance?: string) => {
     // Clean base URL
     const base = config.baseUrl.endsWith('/') ? config.baseUrl.slice(0, -1) : config.baseUrl;
-    
+
     // UazApi sometimes uses different base paths or versioning, adjust here if needed.
     // For now, we assume standard Evolution-like paths as UazApi is a fork.
-    
+
     if (config.provider === 'uazapi') {
-        // Example: If UazApi uses /message/text instead of /message/sendText
-        // You can add specific overrides here.
-        // if (path.includes('sendText')) return `${base}/message/text/${instance}`;
+      // Example: If UazApi uses /message/text instead of /message/sendText
+      // You can add specific overrides here.
+      // if (path.includes('sendText')) return `${base}/message/text/${instance}`;
     }
 
-    return instance 
+    return instance
       ? `${base}${path}/${instance}`
       : `${base}${path}`;
   };
@@ -33,12 +33,12 @@ export const getApiClient = (config: EvoConfig) => {
     },
 
     createInstance: async (name: string) => {
-      const payload = { 
-        instanceName: name, 
+      const payload = {
+        instanceName: name,
         qrcode: true,
-        integration: "WHATSAPP-BAILEYS" 
+        integration: "WHATSAPP-BAILEYS"
       };
-      
+
       const res = await fetch(getUrl('/instance/create'), {
         method: 'POST',
         headers,
@@ -75,13 +75,13 @@ export const getApiClient = (config: EvoConfig) => {
 
       // Add "mentionsEveryOne" if requested
       if (data.mentionsEveryOne) {
-          if (config.provider === 'uazapi') {
-               // UazApi often expects this inside "options"
-               body.options.mentionsEveryOne = true; 
-          } else {
-               // Evolution v2 often expects this at root or options depending on version
-               body.mentionsEveryOne = true; 
-          }
+        if (config.provider === 'uazapi') {
+          // UazApi often expects this inside "options"
+          body.options.mentionsEveryOne = true;
+        } else {
+          // Evolution v2 often expects this at root or options depending on version
+          body.mentionsEveryOne = true;
+        }
       }
 
       switch (type) {
@@ -105,21 +105,22 @@ export const getApiClient = (config: EvoConfig) => {
             mediatype: data.mediatype,
             mimetype: data.mimetype,
             caption: data.caption,
-            media: data.media,
+            media: data.media ? data.media.replace(/^data:.*,/, '') : '',
             fileName: data.fileName
           };
           break;
 
         case 'audio':
           endpoint = '/message/sendWhatsAppAudio';
-          body = { ...body, audio: data.audio };
+          body = { ...body, audio: data.audio ? data.audio.replace(/^data:.*,/, '') : '' };
           break;
-          
+
         case 'poll':
           endpoint = '/message/sendPoll';
+          // Spread pollMessage properties to root for standard Evo v2
           body = {
-             ...body,
-             pollMessage: data.pollMessage,
+            ...body,
+            ...data.pollMessage,
           };
           break;
 
@@ -148,69 +149,69 @@ export const getApiClient = (config: EvoConfig) => {
 
     // --- Group Methods ---
     fetchGroups: async (instance: string) => {
-       // UazApi might use /group/fetchAllGroups/{instance} just like Evo
-       const res = await fetch(getUrl('/group/fetchAllGroups', instance) + '?getParticipants=false', { headers });
-       return res.json();
+      // UazApi might use /group/fetchAllGroups/{instance} just like Evo
+      const res = await fetch(getUrl('/group/fetchAllGroups', instance) + '?getParticipants=false', { headers });
+      return res.json();
     },
 
     createGroup: async (instance: string, subject: string, participants: string[]) => {
-       const res = await fetch(getUrl('/group/create', instance), {
-           method: 'POST',
-           headers,
-           body: JSON.stringify({ subject, participants })
-       });
-       return res;
+      const res = await fetch(getUrl('/group/create', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ subject, participants })
+      });
+      return res;
     },
 
     leaveGroup: async (instance: string, groupId: string) => {
-       const res = await fetch(getUrl('/group/leaveGroup', instance), {
-           method: 'POST',
-           headers,
-           body: JSON.stringify({ groupId })
-       });
-       return res;
+      const res = await fetch(getUrl('/group/leaveGroup', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupId })
+      });
+      return res;
     },
 
     getInviteLink: async (instance: string, groupId: string) => {
-        const res = await fetch(getUrl(`/group/inviteLink/${instance}/${groupId}`), { headers });
-        return res.json();
+      const res = await fetch(getUrl(`/group/inviteLink/${instance}/${groupId}`), { headers });
+      return res.json();
     },
 
     // --- Chat Tools ---
     checkNumber: async (instance: string, number: string) => {
-        const res = await fetch(getUrl('/chat/checkNumber', instance), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ numbers: [number] })
-        });
-        return res.json();
+      const res = await fetch(getUrl('/chat/checkNumber', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ numbers: [number] })
+      });
+      return res.json();
     },
 
     getProfilePic: async (instance: string, number: string) => {
-        const res = await fetch(getUrl('/chat/fetchProfilePictureUrl', instance), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ number })
-        });
-        return res.json();
+      const res = await fetch(getUrl('/chat/fetchProfilePictureUrl', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ number })
+      });
+      return res.json();
     },
 
     archiveChat: async (instance: string, number: string) => {
-        const res = await fetch(getUrl('/chat/archiveChat', instance), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ number })
-        });
-        return res.json();
+      const res = await fetch(getUrl('/chat/archiveChat', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ number })
+      });
+      return res.json();
     },
 
     blockContact: async (instance: string, number: string) => {
-         const res = await fetch(getUrl('/chat/blockContact', instance), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ number })
-        });
-        return res.json();
+      const res = await fetch(getUrl('/chat/blockContact', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ number })
+      });
+      return res.json();
     }
   };
 };
