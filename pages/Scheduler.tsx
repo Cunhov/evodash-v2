@@ -39,6 +39,26 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [mentionEveryone, setMentionEveryone] = useState(false);
     const [splitByLines, setSplitByLines] = useState(false);
 
+    // Rich Message States
+    const [mediaFile, setMediaFile] = useState<File | null>(null);
+    const [pollName, setPollName] = useState('');
+    const [pollOptions, setPollOptions] = useState<string[]>(['Option 1', 'Option 2']);
+    const [pixKey, setPixKey] = useState('');
+    const [pixAmount, setPixAmount] = useState('');
+    const [contactName, setContactName] = useState('');
+    const [contactPhone, setContactPhone] = useState('');
+    const [latitude, setLatitude] = useState('');
+    const [longitude, setLongitude] = useState('');
+
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+        });
+    };
+
     // AI
     const [showAiModal, setShowAiModal] = useState(false);
     const [aiPrompt, setAiPrompt] = useState('');
@@ -127,12 +147,37 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             // Ignore parse error
         }
 
+        setMsgType(schedule.type || 'text');
+
+        // Restore payload data
+        const payload = schedule.payload || {};
+        if (schedule.type === 'poll') {
+            setPollName(payload.name || '');
+            setPollOptions(payload.values || ['Option 1', 'Option 2']);
+        } else if (schedule.type === 'pix') {
+            setPixKey(payload.key || '');
+            setPixAmount(payload.amount?.toString() || '');
+        } else if (schedule.type === 'contact') {
+            const contact = payload.contactMessage?.[0] || {};
+            setContactName(contact.fullName || '');
+            setContactPhone(contact.phoneNumber || '');
+        } else if (schedule.type === 'location') {
+            const loc = payload.locationMessage || {};
+            setLatitude(loc.latitude?.toString() || '');
+            setLongitude(loc.longitude?.toString() || '');
+        }
+
         setView('create');
     };
 
     const handleSave = async () => {
-        if (!selectedInstance || !message || !scheduleDate || !scheduleTime) {
+        if (!selectedInstance || !scheduleDate || !scheduleTime) {
             alert('Please fill all required fields');
+            return;
+        }
+
+        if (msgType === 'text' && !message) {
+            alert('Please enter a message');
             return;
         }
 
@@ -154,29 +199,76 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             minSize: filterMinSize
         });
 
+        // Construct Payload
+        let payload: any = {};
+        let base64Media = '';
+
+        if (mediaFile && (msgType === 'media' || msgType === 'audio')) {
+            try {
+                base64Media = await fileToBase64(mediaFile);
+            } catch (e) {
+                alert('Failed to process media file');
+                return;
+            }
+        }
+
+        if (msgType === 'media') {
+            const typeStr = mediaFile?.type.split('/')[0] || 'image';
+            payload = {
+                mediatype: typeStr === 'video' ? 'video' : 'image',
+                mimetype: mediaFile?.type || 'image/png',
+                caption: message,
+                media: base64Media,
+                fileName: mediaFile?.name || 'file'
+            };
+        } else if (msgType === 'audio') {
+            payload = { audio: base64Media };
+        } else if (msgType === 'poll') {
+            payload = {
+                name: pollName,
+                selectableCount: 1,
+                values: pollOptions.filter(o => o.trim() !== '')
+            };
+        } else if (msgType === 'pix') {
+            payload = { key: pixKey, type: 'cpf', amount: parseFloat(pixAmount) || 0 };
+        } else if (msgType === 'contact') {
+            payload = { contactMessage: [{ fullName: contactName, wuid: contactPhone, phoneNumber: contactPhone }] };
+        } else if (msgType === 'location') {
+            payload = {
+                locationMessage: {
+                    latitude: parseFloat(latitude),
+                    longitude: parseFloat(longitude),
+                    name: 'Location',
+                    address: message
+                }
+            };
+        }
+
         const apiKey = config.apiKey;
-        const payload = {
-            text: message,
+        const dbPayload = {
+            text: message, // Keep for backward compatibility / display
             enviar_em: dateTime.toISOString(),
             instance: selectedInstance,
             api_key: apiKey,
             group_filter: groupFilter,
             min_size_group: filterMinSize,
             mention_everyone: mentionEveryone,
-            status: 'pending'
+            status: 'pending',
+            type: msgType,
+            payload: payload
         };
 
         let error;
         if (editingId) {
             const { error: updateError } = await supabase
                 .from('schedules')
-                .update(payload)
+                .update(dbPayload)
                 .eq('id', editingId);
             error = updateError;
         } else {
             const { error: insertError } = await supabase
                 .from('schedules')
-                .insert(payload);
+                .insert(dbPayload);
             error = insertError;
         }
 
@@ -309,22 +401,68 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                 </div>
                             </div>
 
-                            {/* Message Content */}
+                            {/* Dynamic Fields */}
                             <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 space-y-4">
-                                <div className="flex justify-between items-center mb-1">
-                                    <label className="text-xs text-slate-400">Message / Caption</label>
-                                    <button type="button" onClick={() => setShowAiModal(true)} className="text-xs text-purple-400 flex items-center gap-1 hover:text-purple-300"><Sparkles size={12} /> AI Write</button>
-                                </div>
-                                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3" placeholder="Type your message here..." />
+                                {(msgType === 'text' || msgType === 'media' || msgType === 'location') && (
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="text-xs text-slate-400">{msgType === 'location' ? 'Address (Optional)' : 'Message / Caption'}</label>
+                                            <button type="button" onClick={() => setShowAiModal(true)} className="text-xs text-purple-400 flex items-center gap-1 hover:text-purple-300"><Sparkles size={12} /> AI Write</button>
+                                        </div>
+                                        <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3" placeholder={msgType === 'location' ? 'Type address...' : 'Type your message here...'} />
+                                    </div>
+                                )}
 
                                 <div className="flex flex-col sm:flex-row gap-4 pt-2">
-                                    <button type="button" onClick={() => setSplitByLines(!splitByLines)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${splitByLines ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
-                                        <Split size={16} /> <span>Split separate lines</span>
-                                    </button>
+                                    {msgType === 'text' && (
+                                        <button type="button" onClick={() => setSplitByLines(!splitByLines)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${splitByLines ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                                            <Split size={16} /> <span>Split separate lines</span>
+                                        </button>
+                                    )}
                                     <button type="button" onClick={() => setMentionEveryone(!mentionEveryone)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${mentionEveryone ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
                                         <AtSign size={16} /> <span>Mention Everyone</span>
                                     </button>
                                 </div>
+
+                                {(msgType === 'media' || msgType === 'audio') && (
+                                    <div>
+                                        <label className="text-xs text-slate-400 mb-1 block">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
+                                        <input type="file" onChange={(e) => setMediaFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
+                                    </div>
+                                )}
+
+                                {msgType === 'poll' && (
+                                    <div className="space-y-3">
+                                        <input type="text" placeholder="Poll Question" value={pollName} onChange={(e) => setPollName(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                        {pollOptions.map((opt, i) => (
+                                            <input key={i} type="text" placeholder={`Option ${i + 1}`} value={opt} onChange={(e) => {
+                                                const newOpts = [...pollOptions]; newOpts[i] = e.target.value; setPollOptions(newOpts);
+                                            }} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                        ))}
+                                        <button type="button" onClick={() => setPollOptions([...pollOptions, ''])} className="text-xs text-emerald-400">+ Add Option</button>
+                                    </div>
+                                )}
+
+                                {msgType === 'pix' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input type="text" placeholder="Pix Key (CPF/CNPJ/Email)" value={pixKey} onChange={e => setPixKey(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                        <input type="number" placeholder="Amount (0.00)" value={pixAmount} onChange={e => setPixAmount(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    </div>
+                                )}
+
+                                {msgType === 'contact' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input type="text" placeholder="Full Name" value={contactName} onChange={e => setContactName(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                        <input type="text" placeholder="Phone (e.g. 5511...)" value={contactPhone} onChange={e => setContactPhone(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    </div>
+                                )}
+
+                                {msgType === 'location' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input type="number" placeholder="Latitude" value={latitude} onChange={e => setLatitude(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                        <input type="number" placeholder="Longitude" value={longitude} onChange={e => setLongitude(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    </div>
+                                )}
                             </div>
 
                             {/* Schedule Time */}

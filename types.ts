@@ -98,4 +98,6 @@ export interface Schedule {
   enviado_em?: string;
   midia?: string;
   error_message?: string;
+  type: MessageType;
+  payload?: any;
 }

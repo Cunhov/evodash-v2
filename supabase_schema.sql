@@ -12,6 +12,8 @@ create table if not exists public.schedules (
   enviado_em timestamp with time zone null,
   midia bytea null,
   error_message text null,
+  type text not null default 'text',
+  payload jsonb null,
   constraint schedules_pkey primary key (id)
 );
 

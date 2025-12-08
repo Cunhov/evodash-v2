@@ -75,17 +75,24 @@ const processSchedule = async (schedule: Schedule) => {
 
         for (const group of targetGroups) {
             try {
-                const payload: any = {
+                const msgType = schedule.type || 'text';
+                let payload: any = {
                     number: group.id,
-                    text: schedule.text,
                     delay: 1200,
                     mentionsEveryOne: schedule.mention_everyone
                 };
 
-                // TODO: Handle Media if schedule.midia is present
-                // For now, text only support in this basic worker version
+                // Merge specific payload data
+                if (schedule.payload) {
+                    payload = { ...payload, ...schedule.payload };
+                }
 
-                await api.sendMessage(schedule.instance, 'text', payload);
+                // Backward compatibility for text
+                if (msgType === 'text' && !payload.text) {
+                    payload.text = schedule.text;
+                }
+
+                await api.sendMessage(schedule.instance, msgType, payload);
                 successCount++;
                 // Rate limit
                 await new Promise(r => setTimeout(r, 2000));
