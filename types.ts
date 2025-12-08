@@ -94,7 +94,7 @@ export interface Schedule {
   group_filter: string;
   min_size_group: number;
   mention_everyone: boolean;
-  status: 'pending' | 'sent' | 'failed' | 'cancelled';
+  status: 'pending' | 'sent' | 'failed' | 'cancelled' | 'draft';
   enviado_em?: string;
   midia?: string;
   error_message?: string;

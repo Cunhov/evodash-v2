@@ -16,7 +16,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     // View Mode
     const [view, setView] = useState<'list' | 'create'>('list');
-    const [listFilter, setListFilter] = useState<'pending' | 'history'>('pending');
+    const [listFilter, setListFilter] = useState<'pending' | 'history' | 'draft'>('pending');
     const [editingId, setEditingId] = useState<number | null>(null);
 
     // Data
@@ -49,6 +49,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [contactPhone, setContactPhone] = useState('');
     const [latitude, setLatitude] = useState('');
     const [longitude, setLongitude] = useState('');
+
+    // Preview
+    const [previewItem, setPreviewItem] = useState<Schedule | null>(null);
 
     const fileToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -107,8 +110,10 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
         if (listFilter === 'pending') {
             query = query.eq('status', 'pending');
+        } else if (listFilter === 'draft') {
+            query = query.eq('status', 'draft');
         } else {
-            query = query.neq('status', 'pending');
+            query = query.in('status', ['sent', 'failed', 'cancelled']);
         }
 
         const { data, error } = await query;
@@ -170,7 +175,13 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         setView('create');
     };
 
-    const handleSave = async () => {
+    const handleDuplicate = (schedule: Schedule) => {
+        handleEdit(schedule);
+        setEditingId(null); // Clear ID to ensure it creates a new entry
+        addLog('Schedule duplicated. You can now edit and save it.', 'info');
+    };
+
+    const handleSave = async (targetStatus: 'pending' | 'draft' = 'pending') => {
         if (!selectedInstance || !scheduleDate || !scheduleTime) {
             alert('Please fill all required fields');
             return;
@@ -189,7 +200,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         const dateTime = new Date(`${scheduleDate}T${scheduleTime}`);
         const now = new Date();
 
-        if (dateTime <= now) {
+        if (targetStatus === 'pending' && dateTime <= now) {
             alert('Schedule time must be in the future');
             return;
         }
@@ -253,7 +264,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             group_filter: groupFilter,
             min_size_group: filterMinSize,
             mention_everyone: mentionEveryone,
-            status: 'pending',
+            status: targetStatus,
             type: msgType,
             payload: payload
         };
@@ -276,7 +287,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             addLog(`Failed to save schedule: ${error.message}`, 'error');
             alert('Failed to save schedule');
         } else {
-            addLog(editingId ? 'Schedule updated' : 'Schedule created', 'success');
+            addLog(editingId ? 'Schedule updated' : (targetStatus === 'draft' ? 'Draft saved' : 'Schedule created'), 'success');
             setView('list');
             setEditingId(null);
             setMessage('');
@@ -308,7 +319,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         .sort((a, b) => groupSortSize ? (b.size || 0) - (a.size || 0) : (a.subject || '').localeCompare(b.subject || ''));
 
     return (
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6 p-6">
             <div className="flex justify-between items-end">
                 <div>
                     <h2 className="text-3xl font-bold text-white">Scheduler</h2>
@@ -324,235 +335,340 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                 </div>
             </div>
 
-            {view === 'create' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-2 space-y-6">
-                        <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden p-6 space-y-6">
+            {/* List View */}
+            {view === 'list' && (
+                <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+                    <div className="p-4 border-b border-slate-700 flex gap-4">
+                        <button onClick={() => setListFilter('pending')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${listFilter === 'pending' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-400 hover:text-white'}`}>Scheduled</button>
+                        <button onClick={() => setListFilter('draft')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${listFilter === 'draft' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-400 hover:text-white'}`}>Drafts</button>
+                        <button onClick={() => setListFilter('history')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${listFilter === 'history' ? 'bg-blue-500/10 text-blue-400' : 'text-slate-400 hover:text-white'}`}>History</button>
+                        <div className="flex-1" />
+                        <button onClick={fetchSchedules} className="p-2 text-slate-400 hover:text-white transition"><RefreshCw size={18} /></button>
+                    </div>
 
-                            {/* Instance Selector */}
-                            <div>
-                                <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">From Instance</label>
-                                <select value={selectedInstance} onChange={(e) => setSelectedInstance(e.target.value)} disabled={config.mode === 'instance'} className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 disabled:opacity-50">
-                                    <option value="">Select Instance</option>
-                                    {instances.map((i, idx) => {
-                                        const name = i?.instance?.instanceName || i?.instanceName || i?.name;
-                                        return name ? <option key={idx} value={name}>{name}</option> : null;
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm text-slate-400">
+                            <thead className="bg-slate-900/50 text-xs uppercase font-medium text-slate-500">
+                                <tr>
+                                    <th className="px-6 py-4">Message</th>
+                                    <th className="px-6 py-4">Instance</th>
+                                    <th className="px-6 py-4">Scheduled For</th>
+                                    <th className="px-6 py-4">Status</th>
+                                    <th className="px-6 py-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-700/50">
+                                {schedules.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
+                                            No {listFilter} schedules found.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    schedules.map((schedule) => (
+                                        <tr key={schedule.id} className="hover:bg-slate-700/20 transition">
+                                            <td className="px-6 py-4 font-medium text-white truncate max-w-[200px]">{schedule.text || `[${schedule.type}]`}</td>
+                                            <td className="px-6 py-4">{schedule.instance}</td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col">
+                                                    <span>{new Date(schedule.enviar_em).toLocaleDateString()}</span>
+                                                    <span className="text-xs text-slate-500">{new Date(schedule.enviar_em).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                    {schedule.enviado_em && <span className="text-xs text-emerald-500 mt-1">Sent: {new Date(schedule.enviado_em).toLocaleTimeString()}</span>}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize
+                                                    ${schedule.status === 'pending' ? 'bg-emerald-500/10 text-emerald-400' :
+                                                        schedule.status === 'sent' ? 'bg-blue-500/10 text-blue-400' :
+                                                            schedule.status === 'draft' ? 'bg-amber-500/10 text-amber-400' :
+                                                                'bg-red-500/10 text-red-400'}`}>
+                                                    {schedule.status}
+                                                </span>
+                                                {schedule.error_message && <div className="text-xs text-red-400 mt-1 max-w-[150px] truncate" title={schedule.error_message}>{schedule.error_message}</div>}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button onClick={() => setPreviewItem(schedule)} className="p-2 text-slate-400 hover:text-blue-400 transition" title="View Details">
+                                                        <AlertCircle size={16} />
+                                                    </button>
+                                                    <button onClick={() => handleDuplicate(schedule)} className="p-2 text-slate-400 hover:text-purple-400 transition" title="Duplicate">
+                                                        <RefreshCw size={16} />
+                                                    </button>
+                                                    {(schedule.status === 'pending' || schedule.status === 'draft') && (
+                                                        <>
+                                                            <button onClick={() => handleEdit(schedule)} className="p-2 text-slate-400 hover:text-emerald-400 transition" title="Edit">
+                                                                <FileText size={16} />
+                                                            </button>
+                                                            <button onClick={() => handleDelete(schedule.id!)} className="p-2 text-slate-400 hover:text-red-400 transition" title="Delete">
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Create/Edit View */}
+            {view === 'create' && (
+                <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 max-w-4xl mx-auto">
+                    <div className="flex items-center justify-between mb-8">
+                        <h2 className="text-xl font-semibold text-white">{editingId ? 'Edit Schedule' : 'New Schedule'}</h2>
+                        <button onClick={() => { setView('list'); setEditingId(null); }} className="text-slate-400 hover:text-white transition">Cancel</button>
+                    </div>
+
+                    <div className="space-y-8">
+                        {/* Instance Selection */}
+                        <div className="space-y-4">
+                            <label className="text-sm font-medium text-slate-300">From Instance</label>
+                            <div className="relative">
+                                <select
+                                    value={selectedInstance}
+                                    onChange={(e) => setSelectedInstance(e.target.value)}
+                                    className="w-full appearance-none bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition"
+                                    disabled={config.mode === 'instance'}
+                                >
+                                    <option value="">Select an instance...</option>
+                                    {instances.map((inst: any) => {
+                                        const name = inst.instance?.instanceName || inst.instanceName || inst.name;
+                                        return <option key={name} value={name}>{name}</option>;
                                     })}
                                 </select>
                             </div>
-
-                            {/* Group Selection (Messenger Style) */}
-                            <div className="space-y-2">
-                                <div className="flex justify-between items-end">
-                                    <label className="text-xs uppercase font-bold text-slate-500 block">Select Groups ({selectedGroupIds.size})</label>
-                                    <div className="flex gap-2">
-                                        <button type="button" onClick={() => setGroupSortSize(!groupSortSize)} className={`p-1 rounded ${groupSortSize ? 'text-emerald-400' : 'text-slate-500'}`} title="Sort by Size"><ArrowUpDown size={14} /></button>
-                                        <button type="button" onClick={() => {
-                                            if (selectedGroupIds.size === filteredGroups.length) setSelectedGroupIds(new Set());
-                                            else setSelectedGroupIds(new Set(filteredGroups.map(g => g.id)));
-                                        }} className="text-xs text-blue-400 hover:text-blue-300">
-                                            {selectedGroupIds.size === filteredGroups.length && filteredGroups.length > 0 ? 'Deselect All' : 'Select All'}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="relative">
-                                    <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
-                                    <input type="text" value={groupSearch} onChange={e => setGroupSearch(e.target.value)} placeholder="Search group name..." className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-emerald-500 outline-none" />
-                                </div>
-
-                                <div className="h-48 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg p-2 space-y-1">
-                                    {filteredGroups.length === 0 ? (
-                                        <div className="text-center text-slate-500 text-sm py-4">No groups found</div>
-                                    ) : filteredGroups.map(g => (
-                                        <div key={g.id} onClick={() => {
-                                            const newSet = new Set(selectedGroupIds);
-                                            if (newSet.has(g.id)) newSet.delete(g.id); else newSet.add(g.id);
-                                            setSelectedGroupIds(newSet);
-                                        }} className={`p-2 rounded cursor-pointer text-sm flex justify-between items-center group ${selectedGroupIds.has(g.id) ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-500/30' : 'text-slate-300 hover:bg-slate-800 border border-transparent'}`}>
-                                            <span className="truncate flex-1 pr-2">{g.subject}</span>
-                                            <span className="text-xs text-slate-500 group-hover:text-slate-400 whitespace-nowrap">{g.size || 0} mem</span>
-                                        </div>
-                                    ))}
-                                </div>
-                                {selectedGroupIds.size === 0 && (
-                                    <div className="text-xs text-amber-500 flex items-center gap-1"><AlertTriangle size={12} /> Select at least one group to send</div>
-                                )}
-                            </div>
-
-                            {/* Message Type Selector */}
-                            <div>
-                                <label className="text-xs uppercase font-bold text-slate-500 mb-2 block">Message Type</label>
-                                <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
-                                    {[
-                                        { id: 'text', icon: <FileText size={18} />, label: 'Text' },
-                                        { id: 'media', icon: <Image size={18} />, label: 'Media' },
-                                        { id: 'audio', icon: <Music size={18} />, label: 'Audio' },
-                                        { id: 'poll', icon: <List size={18} />, label: 'Poll' },
-                                        { id: 'pix', icon: <DollarSign size={18} />, label: 'Pix' },
-                                        { id: 'contact', icon: <User size={18} />, label: 'Contact' },
-                                        { id: 'location', icon: <MapPin size={18} />, label: 'Map' }
-                                    ].map(t => (
-                                        <button key={t.id} type="button" onClick={() => setMsgType(t.id as MessageType)} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition ${msgType === t.id ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
-                                            {t.icon}
-                                            <span className="text-xs mt-1">{t.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Dynamic Fields */}
-                            <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 space-y-4">
-                                {(msgType === 'text' || msgType === 'media' || msgType === 'location') && (
-                                    <div>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <label className="text-xs text-slate-400">{msgType === 'location' ? 'Address (Optional)' : 'Message / Caption'}</label>
-                                            <button type="button" onClick={() => setShowAiModal(true)} className="text-xs text-purple-400 flex items-center gap-1 hover:text-purple-300"><Sparkles size={12} /> AI Write</button>
-                                        </div>
-                                        <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3" placeholder={msgType === 'location' ? 'Type address...' : 'Type your message here...'} />
-                                    </div>
-                                )}
-
-                                <div className="flex flex-col sm:flex-row gap-4 pt-2">
-                                    {msgType === 'text' && (
-                                        <button type="button" onClick={() => setSplitByLines(!splitByLines)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${splitByLines ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
-                                            <Split size={16} /> <span>Split separate lines</span>
-                                        </button>
-                                    )}
-                                    <button type="button" onClick={() => setMentionEveryone(!mentionEveryone)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${mentionEveryone ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
-                                        <AtSign size={16} /> <span>Mention Everyone</span>
-                                    </button>
-                                </div>
-
-                                {(msgType === 'media' || msgType === 'audio') && (
-                                    <div>
-                                        <label className="text-xs text-slate-400 mb-1 block">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
-                                        <input type="file" onChange={(e) => setMediaFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
-                                    </div>
-                                )}
-
-                                {msgType === 'poll' && (
-                                    <div className="space-y-3">
-                                        <input type="text" placeholder="Poll Question" value={pollName} onChange={(e) => setPollName(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                        {pollOptions.map((opt, i) => (
-                                            <input key={i} type="text" placeholder={`Option ${i + 1}`} value={opt} onChange={(e) => {
-                                                const newOpts = [...pollOptions]; newOpts[i] = e.target.value; setPollOptions(newOpts);
-                                            }} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                        ))}
-                                        <button type="button" onClick={() => setPollOptions([...pollOptions, ''])} className="text-xs text-emerald-400">+ Add Option</button>
-                                    </div>
-                                )}
-
-                                {msgType === 'pix' && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <input type="text" placeholder="Pix Key (CPF/CNPJ/Email)" value={pixKey} onChange={e => setPixKey(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                        <input type="number" placeholder="Amount (0.00)" value={pixAmount} onChange={e => setPixAmount(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                    </div>
-                                )}
-
-                                {msgType === 'contact' && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <input type="text" placeholder="Full Name" value={contactName} onChange={e => setContactName(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                        <input type="text" placeholder="Phone (e.g. 5511...)" value={contactPhone} onChange={e => setContactPhone(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                    </div>
-                                )}
-
-                                {msgType === 'location' && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <input type="number" placeholder="Latitude" value={latitude} onChange={e => setLatitude(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                        <input type="number" placeholder="Longitude" value={longitude} onChange={e => setLongitude(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Schedule Time */}
-                            <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
-                                <label className="text-xs uppercase font-bold text-slate-500 mb-2 block">Schedule For</label>
-                                <div className="flex gap-4">
-                                    <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 flex-1" />
-                                    <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 w-32" />
-                                </div>
-                            </div>
-
-                            <button onClick={handleSave} disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition">
-                                <Save size={20} /> {editingId ? 'Update Schedule' : 'Schedule Campaign'}
-                            </button>
                         </div>
-                    </div>
 
-                    {/* Sidebar / Tips */}
-                    <div className="space-y-6">
-                        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
-                            <h4 className="font-bold text-white mb-4">Tips</h4>
-                            <ul className="space-y-2 text-sm text-slate-400">
-                                <li>• Schedules are executed automatically by the server.</li>
-                                <li>• Ensure your instance remains connected.</li>
-                                <li>• Large campaigns are sent in batches.</li>
-                                <li>• Timezone is set to Server Time.</li>
-                            </ul>
+                        {/* Group Selection */}
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-end">
+                                <label className="text-sm font-medium text-slate-300">Select Groups ({selectedGroupIds.size})</label>
+                                <button onClick={() => {
+                                    if (selectedGroupIds.size === groups.length) setSelectedGroupIds(new Set());
+                                    else setSelectedGroupIds(new Set(groups.map(g => g.id)));
+                                }} className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
+                                    <CheckCircle size={14} /> Select All
+                                </button>
+                            </div>
+
+                            <div className="bg-slate-900 rounded-xl border border-slate-700 p-4">
+                                <div className="flex gap-4 mb-4">
+                                    <div className="relative flex-1">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                                        <input
+                                            type="text"
+                                            placeholder="Search group name..."
+                                            value={groupSearch}
+                                            onChange={(e) => setGroupSearch(e.target.value)}
+                                            className="w-full bg-slate-800 border-none rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:ring-1 focus:ring-emerald-500"
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs text-slate-400">Min Size:</label>
+                                        <input
+                                            type="number"
+                                            value={filterMinSize}
+                                            onChange={(e) => setFilterMinSize(parseInt(e.target.value) || 0)}
+                                            className="w-16 bg-slate-800 border-none rounded-lg px-2 py-2 text-sm text-white text-center"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="h-64 overflow-y-auto space-y-1 pr-2 custom-scrollbar">
+                                    {loading ? (
+                                        <div className="text-center py-8 text-slate-500">Loading groups...</div>
+                                    ) : groups
+                                        .filter(g => !groupSearch || g.subject.toLowerCase().includes(groupSearch.toLowerCase()))
+                                        .filter(g => (g.size || 0) >= filterMinSize)
+                                        .map(group => (
+                                            <div
+                                                key={group.id}
+                                                onClick={() => {
+                                                    const newSet = new Set(selectedGroupIds);
+                                                    if (newSet.has(group.id)) newSet.delete(group.id);
+                                                    else newSet.add(group.id);
+                                                    setSelectedGroupIds(newSet);
+                                                }}
+                                                className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition ${selectedGroupIds.has(group.id) ? 'bg-emerald-500/10 border border-emerald-500/30' : 'hover:bg-slate-800 border border-transparent'}`}
+                                            >
+                                                <span className="text-sm text-slate-300 truncate">{group.subject}</span>
+                                                <span className="text-xs text-slate-500">{group.size || '?'} mem</span>
+                                            </div>
+                                        ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Message Type */}
+                        <div className="space-y-4">
+                            <label className="text-sm font-medium text-slate-300">Message Type</label>
+                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                {[
+                                    { id: 'text', label: 'Text', icon: FileText },
+                                    { id: 'media', label: 'Media', icon: Image },
+                                    { id: 'audio', label: 'Audio', icon: Music },
+                                    { id: 'poll', label: 'Poll', icon: List },
+                                    { id: 'pix', label: 'Pix', icon: DollarSign },
+                                    { id: 'contact', label: 'Contact', icon: User },
+                                    { id: 'location', label: 'Map', icon: MapPin },
+                                ].map(type => (
+                                    <button
+                                        key={type.id}
+                                        onClick={() => setMsgType(type.id as MessageType)}
+                                        className={`flex flex-col items-center gap-2 px-4 py-3 rounded-xl border min-w-[80px] transition ${msgType === type.id ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600'}`}
+                                    >
+                                        <type.icon size={20} />
+                                        <span className="text-xs font-medium">{type.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Dynamic Fields */}
+                        <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 space-y-4">
+                            {(msgType === 'text' || msgType === 'media' || msgType === 'location') && (
+                                <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <label className="text-xs text-slate-400">{msgType === 'location' ? 'Address (Optional)' : 'Message / Caption'}</label>
+                                        <button type="button" onClick={() => setShowAiModal(true)} className="text-xs text-purple-400 flex items-center gap-1 hover:text-purple-300"><Sparkles size={12} /> AI Write</button>
+                                    </div>
+                                    <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3" placeholder={msgType === 'location' ? 'Type address...' : 'Type your message here...'} />
+                                </div>
+                            )}
+
+                            <div className="flex flex-col sm:flex-row gap-4 pt-2">
+                                {msgType === 'text' && (
+                                    <button type="button" onClick={() => setSplitByLines(!splitByLines)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${splitByLines ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                                        <Split size={16} /> <span>Split separate lines</span>
+                                    </button>
+                                )}
+                                <button type="button" onClick={() => setMentionEveryone(!mentionEveryone)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${mentionEveryone ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                                    <AtSign size={16} /> <span>Mention Everyone</span>
+                                </button>
+                            </div>
+
+                            {(msgType === 'media' || msgType === 'audio') && (
+                                <div>
+                                    <label className="text-xs text-slate-400 mb-1 block">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
+                                    <input type="file" onChange={(e) => setMediaFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
+                                </div>
+                            )}
+
+                            {msgType === 'poll' && (
+                                <div className="space-y-3">
+                                    <input type="text" placeholder="Poll Question" value={pollName} onChange={(e) => setPollName(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    {pollOptions.map((opt, i) => (
+                                        <input key={i} type="text" placeholder={`Option ${i + 1}`} value={opt} onChange={(e) => {
+                                            const newOpts = [...pollOptions]; newOpts[i] = e.target.value; setPollOptions(newOpts);
+                                        }} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    ))}
+                                    <button type="button" onClick={() => setPollOptions([...pollOptions, ''])} className="text-xs text-emerald-400">+ Add Option</button>
+                                </div>
+                            )}
+
+                            {msgType === 'pix' && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="text" placeholder="Pix Key (CPF/CNPJ/Email)" value={pixKey} onChange={e => setPixKey(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    <input type="number" placeholder="Amount (0.00)" value={pixAmount} onChange={e => setPixAmount(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                </div>
+                            )}
+
+                            {msgType === 'contact' && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="text" placeholder="Full Name" value={contactName} onChange={e => setContactName(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    <input type="text" placeholder="Phone (e.g. 5511...)" value={contactPhone} onChange={e => setContactPhone(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                </div>
+                            )}
+
+                            {msgType === 'location' && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="number" placeholder="Latitude" value={latitude} onChange={e => setLatitude(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                    <input type="number" placeholder="Longitude" value={longitude} onChange={e => setLongitude(e.target.value)} className="bg-slate-800 border border-slate-700 rounded p-2 text-white" />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Schedule Time */}
+                        <div className="space-y-4">
+                            <label className="text-sm font-medium text-slate-300">Schedule For</label>
+                            <div className="grid grid-cols-2 gap-4">
+                                <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
+                                <input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4 pt-4">
+                            <button onClick={() => handleSave('draft')} className="flex-1 bg-slate-700 text-white font-medium py-3 rounded-xl hover:bg-slate-600 transition flex items-center justify-center gap-2">
+                                <Save size={20} /> Save as Draft
+                            </button>
+                            <button onClick={() => handleSave('pending')} className="flex-[2] bg-emerald-500 text-white font-medium py-3 rounded-xl hover:bg-emerald-600 transition flex items-center justify-center gap-2">
+                                <Calendar size={20} /> Schedule Campaign
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* List View */}
-            {view === 'list' && (
-                <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                    <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-                        <div className="flex gap-2">
-                            <button onClick={() => setListFilter('pending')} className={`px-3 py-1 rounded text-sm font-medium ${listFilter === 'pending' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-white'}`}>Scheduled</button>
-                            <button onClick={() => setListFilter('history')} className={`px-3 py-1 rounded text-sm font-medium ${listFilter === 'history' ? 'bg-blue-500/20 text-blue-400' : 'text-slate-400 hover:text-white'}`}>History</button>
+            {/* Preview Modal */}
+            {previewItem && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-md overflow-hidden shadow-2xl">
+                        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+                            <h3 className="font-semibold text-white">Message Preview</h3>
+                            <button onClick={() => setPreviewItem(null)} className="text-slate-400 hover:text-white"><Plus className="rotate-45" size={20} /></button>
                         </div>
-                        <button onClick={fetchSchedules} className="text-slate-400 hover:text-white"><RefreshCw size={18} /></button>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-slate-400">
-                            <thead className="bg-slate-900/50 text-slate-200 uppercase font-bold text-xs">
-                                <tr>
-                                    <th className="p-4">Message</th>
-                                    <th className="p-4">Instance</th>
-                                    <th className="p-4">Scheduled For</th>
-                                    <th className="p-4">Status</th>
-                                    <th className="p-4">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-700">
-                                {schedules.length === 0 ? (
-                                    <tr><td colSpan={5} className="p-8 text-center text-slate-500">No {listFilter} schedules found.</td></tr>
-                                ) : schedules.map(s => (
-                                    <tr key={s.id} className="hover:bg-slate-700/30 transition">
-                                        <td className="p-4 max-w-xs truncate" title={s.text}>{s.text}</td>
-                                        <td className="p-4">{s.instance}</td>
-                                        <td className="p-4">
-                                            {new Date(s.enviar_em).toLocaleString()}
-                                            {s.enviado_em && <div className="text-xs text-emerald-500">Sent: {new Date(s.enviado_em).toLocaleString()}</div>}
-                                        </td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${s.status === 'sent' ? 'bg-emerald-500/20 text-emerald-400' :
-                                                s.status === 'failed' ? 'bg-rose-500/20 text-rose-400' :
-                                                    s.status === 'cancelled' ? 'bg-slate-500/20 text-slate-400' :
-                                                        'bg-amber-500/20 text-amber-400'
-                                                }`}>
-                                                {s.status}
-                                            </span>
-                                            {s.error_message && <div className="text-xs text-rose-500 mt-1 max-w-xs truncate" title={s.error_message}>{s.error_message}</div>}
-                                        </td>
-                                        <td className="p-4 flex gap-2">
-                                            {s.status === 'pending' && (
-                                                <>
-                                                    <button onClick={() => handleEdit(s)} className="text-blue-400 hover:text-blue-300 p-2 rounded hover:bg-blue-500/10" title="Edit">
-                                                        <FileText size={16} />
-                                                    </button>
-                                                    <button onClick={() => handleDelete(s.id!)} className="text-rose-400 hover:text-rose-300 p-2 rounded hover:bg-rose-500/10" title="Delete">
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        <div className="p-6 space-y-4">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                    {previewItem.type === 'text' && <FileText size={20} />}
+                                    {previewItem.type === 'media' && <Image size={20} />}
+                                    {previewItem.type === 'audio' && <Music size={20} />}
+                                    {previewItem.type === 'poll' && <List size={20} />}
+                                    {previewItem.type === 'pix' && <DollarSign size={20} />}
+                                    {previewItem.type === 'contact' && <User size={20} />}
+                                    {previewItem.type === 'location' && <MapPin size={20} />}
+                                </div>
+                                <div>
+                                    <div className="text-sm font-medium text-white capitalize">{previewItem.type} Message</div>
+                                    <div className="text-xs text-slate-400">{new Date(previewItem.enviar_em).toLocaleString()}</div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 space-y-2">
+                                {previewItem.text && <p className="whitespace-pre-wrap">{previewItem.text}</p>}
+
+                                {previewItem.type === 'poll' && previewItem.payload?.values && (
+                                    <div className="space-y-2 mt-2">
+                                        <div className="font-medium text-white">{previewItem.payload.name}</div>
+                                        {previewItem.payload.values.map((opt: string, i: number) => (
+                                            <div key={i} className="bg-slate-700/50 px-3 py-2 rounded text-xs">{opt}</div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {previewItem.type === 'pix' && (
+                                    <div className="text-emerald-400 font-mono bg-emerald-500/10 p-2 rounded text-center">
+                                        PIX: {previewItem.payload?.key} <br />
+                                        R$ {previewItem.payload?.amount}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 text-xs text-slate-400 pt-2 border-t border-slate-700/50">
+                                <div>
+                                    <span className="block text-slate-500 mb-1">Instance</span>
+                                    <span className="text-white">{previewItem.instance}</span>
+                                </div>
+                                <div>
+                                    <span className="block text-slate-500 mb-1">Status</span>
+                                    <span className={`capitalize ${previewItem.status === 'sent' ? 'text-emerald-400' : 'text-amber-400'}`}>{previewItem.status}</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
