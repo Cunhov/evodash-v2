@@ -10,6 +10,13 @@ if (!globalThis.fetch) {
 const POLL_INTERVAL = 60000; // 1 minute
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL || process.env.VITE_EVOLUTION_API_URL || 'http://localhost:8080';
 
+console.log('Worker starting...');
+console.log('Configuration:', {
+    evolutionUrl: EVOLUTION_URL,
+    supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL ? 'Set' : 'Missing',
+    supabaseKey: process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Missing',
+    timezone: process.env.TZ
+});
 console.log('Worker started. Polling for schedules...');
 
 const processSchedule = async (schedule: Schedule) => {
