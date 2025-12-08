@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search } from 'lucide-react';
-import { EvoConfig, Group, Schedule } from '../types';
+import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle } from 'lucide-react';
+import { EvoConfig, Group, Schedule, MessageType } from '../types';
 import { getApiClient } from '../services/apiAdapter';
 import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
+import { generateMarketingMessage } from '../services/geminiService';
 
 interface SchedulerProps {
     config: EvoConfig;
@@ -26,16 +27,22 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [message, setMessage] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
     const [scheduleTime, setScheduleTime] = useState('');
+    const [msgType, setMsgType] = useState<MessageType>('text');
 
-    // Filters
-    const [filterName, setFilterName] = useState('');
+    // Filters & Options
+    const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+    const [groupSearch, setGroupSearch] = useState('');
+    const [groupSortSize, setGroupSortSize] = useState(false);
     const [filterMinSize, setFilterMinSize] = useState(0);
-    const [filterAdmin, setFilterAdmin] = useState(false);
     const [mentionEveryone, setMentionEveryone] = useState(false);
+    const [splitByLines, setSplitByLines] = useState(false);
+
+    // AI
+    const [showAiModal, setShowAiModal] = useState(false);
+    const [aiPrompt, setAiPrompt] = useState('');
 
     // Loading
     const [loading, setLoading] = useState(false);
-    const [previewCount, setPreviewCount] = useState<number | null>(null);
 
     // Fetch Instances
     useEffect(() => {
@@ -67,25 +74,6 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         }
     }, [selectedInstance]);
 
-    // Update Preview Count
-    useEffect(() => {
-        if (!selectedInstance || groups.length === 0) {
-            setPreviewCount(null);
-            return;
-        }
-
-        const count = groups.filter(g => {
-            const nameMatch = !filterName || (g.subject && g.subject.toLowerCase().includes(filterName.toLowerCase()));
-            const sizeMatch = (g.size || 0) >= filterMinSize;
-            // Admin check would require checking participants, assuming 'owner' or similar property if available, 
-            // but standard fetchGroups might not have full participant details unless specified.
-            // For now we skip admin check in preview or assume all.
-            return nameMatch && sizeMatch;
-        }).length;
-
-        setPreviewCount(count);
-    }, [groups, filterName, filterMinSize, filterAdmin]);
-
     // Fetch Schedules
     const fetchSchedules = async () => {
         setLoading(true);
@@ -112,6 +100,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             return;
         }
 
+        if (selectedGroupIds.size === 0) {
+            alert('Please select at least one group');
+            return;
+        }
+
         const dateTime = new Date(`${scheduleDate}T${scheduleTime}`);
         const now = new Date();
 
@@ -120,14 +113,19 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             return;
         }
 
+        // Create filter JSON based on selected IDs (or criteria if we want dynamic)
+        // For this "Messenger-like" UI, we are selecting specific groups, but the backend expects a filter string.
+        // We can store the list of IDs in the filter or just "nameContains" if we want dynamic.
+        // To match the user request "Group Filter", we should probably stick to dynamic filters OR 
+        // if the user selected specific groups, we can store those IDs.
+        // However, the previous logic used dynamic filters. 
+        // Let's support both: if specific groups selected, we filter by ID list.
+
         const groupFilter = JSON.stringify({
-            nameContains: filterName,
-            adminOnly: filterAdmin
+            ids: Array.from(selectedGroupIds),
+            minSize: filterMinSize
         });
 
-        // Get API Key for the instance (assuming we have it in config or need to fetch it)
-        // In 'global' mode, we use the global key. In 'instance' mode, we might need the instance token.
-        // For now, we'll store the apiKey from config if available, or empty if it's handled by the worker using global key.
         const apiKey = config.apiKey;
 
         const { error } = await supabase.from('schedules').insert({
@@ -147,42 +145,46 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         } else {
             addLog('Schedule created successfully', 'success');
             setView('list');
-            // Reset form
             setMessage('');
-            setFilterName('');
-            setFilterMinSize(0);
+            setSelectedGroupIds(new Set());
         }
     };
 
     const handleDelete = async (id: number) => {
         if (!confirm('Are you sure you want to delete this schedule?')) return;
-
         const { error } = await supabase.from('schedules').delete().eq('id', id);
-        if (error) {
-            addLog(`Failed to delete: ${error.message}`, 'error');
-        } else {
-            fetchSchedules();
-        }
+        if (error) addLog(`Failed to delete: ${error.message}`, 'error');
+        else fetchSchedules();
     };
 
+    const handleAiGenerate = async () => {
+        addLog('Generating AI content...', 'info');
+        const txt = await generateMarketingMessage(aiPrompt, 'casual', 200);
+        if (txt.startsWith('Error')) {
+            addLog(txt, 'error');
+        } else {
+            setMessage(txt);
+            addLog('AI Content generated', 'success');
+        }
+        setShowAiModal(false);
+    };
+
+    const filteredGroups = groups
+        .filter(g => g.subject?.toLowerCase().includes(groupSearch.toLowerCase()))
+        .sort((a, b) => groupSortSize ? (b.size || 0) - (a.size || 0) : (a.subject || '').localeCompare(b.subject || ''));
+
     return (
-        <div className="max-w-6xl mx-auto space-y-6">
-            <div className="flex justify-between items-center">
+        <div className="max-w-5xl mx-auto space-y-6">
+            <div className="flex justify-between items-end">
                 <div>
-                    <h2 className="text-3xl font-bold text-white">Message Scheduler</h2>
-                    <p className="text-slate-400">Automate your campaigns with precision.</p>
+                    <h2 className="text-3xl font-bold text-white">Scheduler</h2>
+                    <p className="text-slate-400">Plan and automate your campaigns.</p>
                 </div>
                 <div className="flex gap-2">
-                    <button
-                        onClick={() => setView('list')}
-                        className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'list' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-                    >
+                    <button onClick={() => setView('list')} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'list' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Calendar size={18} /> Calendar
                     </button>
-                    <button
-                        onClick={() => setView('create')}
-                        className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-                    >
+                    <button onClick={() => setView('create')} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Plus size={18} /> New Schedule
                     </button>
                 </div>
@@ -191,116 +193,129 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             {view === 'create' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-6">
-                        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 space-y-6">
-                            <h3 className="text-xl font-bold text-white flex items-center gap-2"><Clock size={20} /> Schedule Details</h3>
+                        <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden p-6 space-y-6">
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">Instance</label>
-                                    <select
-                                        value={selectedInstance}
-                                        onChange={(e) => setSelectedInstance(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3"
-                                    >
-                                        <option value="">Select Instance</option>
-                                        {instances.map((i, idx) => {
-                                            const name = i?.instance?.instanceName || i?.instanceName || i?.name;
-                                            return name ? <option key={idx} value={name}>{name}</option> : null;
-                                        })}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">Date & Time</label>
-                                    <div className="flex gap-2">
-                                        <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 flex-1" />
-                                        <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} className="bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 w-32" />
-                                    </div>
-                                </div>
-                            </div>
-
+                            {/* Instance Selector */}
                             <div>
-                                <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">Message Content</label>
-                                <textarea
-                                    value={message}
-                                    onChange={e => setMessage(e.target.value)}
-                                    rows={5}
-                                    className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-4"
-                                    placeholder="Type your message here..."
-                                />
+                                <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">From Instance</label>
+                                <select value={selectedInstance} onChange={(e) => setSelectedInstance(e.target.value)} disabled={config.mode === 'instance'} className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 disabled:opacity-50">
+                                    <option value="">Select Instance</option>
+                                    {instances.map((i, idx) => {
+                                        const name = i?.instance?.instanceName || i?.instanceName || i?.name;
+                                        return name ? <option key={idx} value={name}>{name}</option> : null;
+                                    })}
+                                </select>
                             </div>
 
-                            <div className="border-t border-slate-700 pt-6">
-                                <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-4"><Filter size={20} /> Group Targeting</h3>
+                            {/* Group Selection (Messenger Style) */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between items-end">
+                                    <label className="text-xs uppercase font-bold text-slate-500 block">Select Groups ({selectedGroupIds.size})</label>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => setGroupSortSize(!groupSortSize)} className={`p-1 rounded ${groupSortSize ? 'text-emerald-400' : 'text-slate-500'}`} title="Sort by Size"><ArrowUpDown size={14} /></button>
+                                        <button type="button" onClick={() => {
+                                            if (selectedGroupIds.size === filteredGroups.length) setSelectedGroupIds(new Set());
+                                            else setSelectedGroupIds(new Set(filteredGroups.map(g => g.id)));
+                                        }} className="text-xs text-blue-400 hover:text-blue-300">
+                                            {selectedGroupIds.size === filteredGroups.length && filteredGroups.length > 0 ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                    </div>
+                                </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">Name Contains</label>
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-3 text-slate-500" size={16} />
-                                            <input
-                                                type="text"
-                                                value={filterName}
-                                                onChange={e => setFilterName(e.target.value)}
-                                                className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg pl-10 pr-4 py-3"
-                                                placeholder="e.g. Marketing"
-                                            />
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
+                                    <input type="text" value={groupSearch} onChange={e => setGroupSearch(e.target.value)} placeholder="Search group name..." className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-emerald-500 outline-none" />
+                                </div>
+
+                                <div className="h-48 overflow-y-auto bg-slate-900 border border-slate-700 rounded-lg p-2 space-y-1">
+                                    {filteredGroups.length === 0 ? (
+                                        <div className="text-center text-slate-500 text-sm py-4">No groups found</div>
+                                    ) : filteredGroups.map(g => (
+                                        <div key={g.id} onClick={() => {
+                                            const newSet = new Set(selectedGroupIds);
+                                            if (newSet.has(g.id)) newSet.delete(g.id); else newSet.add(g.id);
+                                            setSelectedGroupIds(newSet);
+                                        }} className={`p-2 rounded cursor-pointer text-sm flex justify-between items-center group ${selectedGroupIds.has(g.id) ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-500/30' : 'text-slate-300 hover:bg-slate-800 border border-transparent'}`}>
+                                            <span className="truncate flex-1 pr-2">{g.subject}</span>
+                                            <span className="text-xs text-slate-500 group-hover:text-slate-400 whitespace-nowrap">{g.size || 0} mem</span>
                                         </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">Min. Group Size</label>
-                                        <input
-                                            type="number"
-                                            value={filterMinSize}
-                                            onChange={e => setFilterMinSize(parseInt(e.target.value) || 0)}
-                                            className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3"
-                                        />
-                                    </div>
+                                    ))}
                                 </div>
-
-                                <div className="flex items-center gap-6 mt-4">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" checked={mentionEveryone} onChange={e => setMentionEveryone(e.target.checked)} className="rounded bg-slate-900 border-slate-700 text-emerald-500" />
-                                        <span className="text-slate-300">Mention Everyone (@everyone)</span>
-                                    </label>
-                                    {/* Admin filter not fully supported by simple fetchGroups, but kept as placeholder */}
-                                    {/* <label className="flex items-center gap-2 cursor-pointer opacity-50" title="Not available in this version">
-                    <input type="checkbox" disabled checked={filterAdmin} onChange={e => setFilterAdmin(e.target.checked)} className="rounded bg-slate-900 border-slate-700" />
-                    <span className="text-slate-500">Admin Only (Coming Soon)</span>
-                  </label> */}
-                                </div>
-
-                                {previewCount !== null && (
-                                    <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm flex items-center gap-2">
-                                        <CheckCircle size={16} />
-                                        Targeting approximately <strong>{previewCount}</strong> groups based on current filters.
-                                    </div>
+                                {selectedGroupIds.size === 0 && (
+                                    <div className="text-xs text-amber-500 flex items-center gap-1"><AlertTriangle size={12} /> Select at least one group to send</div>
                                 )}
                             </div>
 
-                            <button
-                                onClick={handleSave}
-                                disabled={loading}
-                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition"
-                            >
+                            {/* Message Type Selector */}
+                            <div>
+                                <label className="text-xs uppercase font-bold text-slate-500 mb-2 block">Message Type</label>
+                                <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                                    {[
+                                        { id: 'text', icon: <FileText size={18} />, label: 'Text' },
+                                        { id: 'media', icon: <Image size={18} />, label: 'Media' },
+                                        { id: 'audio', icon: <Music size={18} />, label: 'Audio' },
+                                        { id: 'poll', icon: <List size={18} />, label: 'Poll' },
+                                        { id: 'pix', icon: <DollarSign size={18} />, label: 'Pix' },
+                                        { id: 'contact', icon: <User size={18} />, label: 'Contact' },
+                                        { id: 'location', icon: <MapPin size={18} />, label: 'Map' }
+                                    ].map(t => (
+                                        <button key={t.id} type="button" onClick={() => setMsgType(t.id as MessageType)} className={`flex flex-col items-center justify-center p-3 rounded-lg border transition ${msgType === t.id ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                                            {t.icon}
+                                            <span className="text-xs mt-1">{t.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Message Content */}
+                            <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 space-y-4">
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs text-slate-400">Message / Caption</label>
+                                    <button type="button" onClick={() => setShowAiModal(true)} className="text-xs text-purple-400 flex items-center gap-1 hover:text-purple-300"><Sparkles size={12} /> AI Write</button>
+                                </div>
+                                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3" placeholder="Type your message here..." />
+
+                                <div className="flex flex-col sm:flex-row gap-4 pt-2">
+                                    <button type="button" onClick={() => setSplitByLines(!splitByLines)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${splitByLines ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                                        <Split size={16} /> <span>Split separate lines</span>
+                                    </button>
+                                    <button type="button" onClick={() => setMentionEveryone(!mentionEveryone)} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition ${mentionEveryone ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'}`}>
+                                        <AtSign size={16} /> <span>Mention Everyone</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Schedule Time */}
+                            <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50">
+                                <label className="text-xs uppercase font-bold text-slate-500 mb-2 block">Schedule For</label>
+                                <div className="flex gap-4">
+                                    <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 flex-1" />
+                                    <input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-4 py-3 w-32" />
+                                </div>
+                            </div>
+
+                            <button onClick={handleSave} disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition">
                                 <Save size={20} /> Schedule Campaign
                             </button>
                         </div>
                     </div>
 
+                    {/* Sidebar / Tips */}
                     <div className="space-y-6">
                         <div className="bg-slate-800 rounded-xl border border-slate-700 p-6">
                             <h4 className="font-bold text-white mb-4">Tips</h4>
                             <ul className="space-y-2 text-sm text-slate-400">
                                 <li>• Schedules are executed automatically by the server.</li>
                                 <li>• Ensure your instance remains connected.</li>
-                                <li>• Large campaigns are sent in batches to avoid bans.</li>
-                                <li>• You can edit or cancel pending schedules.</li>
+                                <li>• Large campaigns are sent in batches.</li>
+                                <li>• Timezone is set to Server Time.</li>
                             </ul>
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* List View */}
             {view === 'list' && (
                 <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
                     <div className="p-4 border-b border-slate-700 flex justify-between items-center">
@@ -350,6 +365,20 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* AI Modal */}
+            {showAiModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
+                        <h3 className="text-white font-bold mb-4">AI Assistant</h3>
+                        <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} placeholder="Describe your message..." className="w-full bg-slate-900 border border-slate-700 rounded p-3 text-white mb-4" rows={4} />
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setShowAiModal(false)} className="px-4 py-2 text-slate-400">Cancel</button>
+                            <button onClick={handleAiGenerate} className="px-4 py-2 bg-purple-600 text-white rounded">Generate</button>
+                        </div>
                     </div>
                 </div>
             )}

@@ -48,6 +48,12 @@ const processSchedule = async (schedule: Schedule) => {
         // 4. Filter Groups
         const filter = JSON.parse(schedule.group_filter || '{}');
         const targetGroups = groups.filter((g: any) => {
+            // If IDs are provided, filter by ID list
+            if (filter.ids && Array.isArray(filter.ids) && filter.ids.length > 0) {
+                return filter.ids.includes(g.id);
+            }
+
+            // Fallback to dynamic filters
             const nameMatch = !filter.nameContains || (g.subject && g.subject.toLowerCase().includes(filter.nameContains.toLowerCase()));
             const sizeMatch = (g.size || 0) >= (schedule.min_size_group || 0);
             return nameMatch && sizeMatch;
