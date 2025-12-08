@@ -238,12 +238,18 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
         if (msgType === 'media') {
             const typeStr = mediaFile?.type.split('/')[0] || 'image';
+            // Sanitize filename: remove special chars, truncate to 50 chars, preserve extension
+            const originalName = mediaFile?.name || 'file';
+            const ext = originalName.split('.').pop() || '';
+            const name = originalName.replace(`.${ext}`, '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+            const saneFileName = `${name}.${ext}`;
+
             payload = {
                 mediatype: typeStr === 'video' ? 'video' : 'image',
                 mimetype: mediaFile?.type || 'image/png',
                 caption: message,
                 media: mediaUrl,
-                fileName: mediaFile?.name || 'file'
+                fileName: saneFileName
             };
         } else if (msgType === 'audio') {
             payload = { audio: mediaUrl };
