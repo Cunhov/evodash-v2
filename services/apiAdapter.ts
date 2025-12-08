@@ -140,6 +140,7 @@ export const getApiClient = (config: EvoConfig) => {
           break;
       }
 
+      console.log(`[API] calling ${endpoint} with body:`, JSON.stringify(body, null, 2));
       return fetch(getUrl(endpoint, instance), {
         method: 'POST',
         headers,

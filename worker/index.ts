@@ -92,6 +92,9 @@ const processSchedule = async (schedule: Schedule) => {
                     payload.text = schedule.text;
                 }
 
+                console.log(`[Worker] Sending message type: ${msgType}`);
+                console.log(`[Worker] Payload:`, JSON.stringify(payload, null, 2));
+
                 await api.sendMessage(schedule.instance, msgType, payload);
                 successCount++;
                 // Rate limit
