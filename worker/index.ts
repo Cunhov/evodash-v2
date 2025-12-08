@@ -92,8 +92,29 @@ const processSchedule = async (schedule: Schedule) => {
                     payload.text = schedule.text;
                 }
 
+                // If sending media via URL, fetch it and convert to Base64 to ensure delivery
+                // This bypasses potential DNS/Network issues on the Evolution API side
+                if ((msgType === 'media' || msgType === 'audio') && payload.media && payload.media.startsWith('http')) {
+                    try {
+                        console.log(`[Worker] Fetching media from ${payload.media}...`);
+                        const mediaRes = await fetch(payload.media);
+                        if (mediaRes.ok) {
+                            const arrayBuffer = await mediaRes.arrayBuffer();
+                            const buffer = Buffer.from(arrayBuffer);
+                            payload.media = buffer.toString('base64');
+                            console.log(`[Worker] Converted media to Base64 (${payload.media.length} chars)`);
+                        } else {
+                            console.error(`[Worker] Failed to fetch media: ${mediaRes.statusText}`);
+                        }
+                    } catch (fetchError) {
+                        console.error(`[Worker] Error fetching media URL:`, fetchError);
+                    }
+                }
+
                 console.log(`[Worker] Sending message type: ${msgType}`);
-                console.log(`[Worker] Payload:`, JSON.stringify(payload, null, 2));
+                // Don't log full base64 to keep logs clean
+                const logPayload = { ...payload, media: payload.media ? (payload.media.substring(0, 50) + '...') : undefined };
+                console.log(`[Worker] Payload:`, JSON.stringify(logPayload, null, 2));
 
                 await api.sendMessage(schedule.instance, msgType, payload);
                 successCount++;
