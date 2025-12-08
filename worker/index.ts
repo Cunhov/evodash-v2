@@ -7,7 +7,7 @@ if (!globalThis.fetch) {
     console.warn('Fetch API not found, ensure Node 18+');
 }
 
-const POLL_INTERVAL = 60000; // 1 minute
+const POLL_INTERVAL = 5000; // 5 seconds
 const EVOLUTION_URL = process.env.EVOLUTION_API_URL || process.env.VITE_EVOLUTION_API_URL || 'http://localhost:8080';
 
 console.log('Worker starting...');
@@ -17,7 +17,7 @@ console.log('Configuration:', {
     supabaseKey: process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY ? 'Set' : 'Missing',
     timezone: process.env.TZ
 });
-console.log('Worker started. Polling for schedules...');
+console.log('Worker started. Polling for schedules every 5s...');
 
 const processSchedule = async (schedule: Schedule) => {
     console.log(`Processing schedule #${schedule.id}`);
@@ -47,9 +47,10 @@ const processSchedule = async (schedule: Schedule) => {
         const api = getApiClient(config);
 
         // 3. Fetch Groups
+        console.log(`Fetching groups for instance ${schedule.instance}...`);
         const groups = await api.fetchGroups(schedule.instance);
         if (!Array.isArray(groups)) {
-            throw new Error('Failed to fetch groups');
+            throw new Error(`Failed to fetch groups: ${JSON.stringify(groups)}`);
         }
 
         // 4. Filter Groups
@@ -121,6 +122,8 @@ const processSchedule = async (schedule: Schedule) => {
 const run = async () => {
     try {
         const now = new Date().toISOString();
+        console.log(`[${now}] Checking for schedules...`);
+
         const { data: schedules, error } = await supabase
             .from('schedules')
             .select('*')
