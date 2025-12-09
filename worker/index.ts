@@ -43,6 +43,45 @@ const loadSettings = async () => {
     }
 };
 
+const handleRecurrence = async (schedule: Schedule) => {
+    try {
+        console.log(`[Recurrence] Processing rule '${schedule.recurrence_rule}' for #${schedule.id}`);
+        const currentParams = new Date(schedule.enviar_em);
+        let nextDate = new Date(currentParams);
+
+        if (schedule.recurrence_rule === 'daily') {
+            nextDate.setDate(nextDate.getDate() + 1);
+        } else if (schedule.recurrence_rule === 'weekly') {
+            nextDate.setDate(nextDate.getDate() + 7);
+        } else if (schedule.recurrence_rule === 'monthly') {
+            nextDate.setMonth(nextDate.getMonth() + 1);
+        } else {
+            return;
+        }
+
+        // Clone schedule
+        const newPayload = {
+            ...schedule,
+            id: undefined, // New ID
+            enviar_em: nextDate.toISOString(),
+            status: 'pending',
+            enviado_em: null,
+            error_message: null,
+            parent_schedule_id: schedule.id // Link to parent
+        };
+
+        const { data, error } = await supabase.from('schedules').insert(newPayload).select();
+
+        if (error) {
+            console.error('[Recurrence] Failed to spawn next schedule:', error);
+        } else {
+            console.log(`[Recurrence] Spawned next schedule #${data[0].id} for ${nextDate.toISOString()}`);
+        }
+    } catch (e) {
+        console.error('[Recurrence] Error:', e);
+    }
+};
+
 const processSchedule = async (schedule: Schedule) => {
     console.log(`Processing schedule #${schedule.id}`);
 
@@ -144,9 +183,16 @@ const processSchedule = async (schedule: Schedule) => {
                 successCount++;
                 // Rate limit
                 await new Promise(r => setTimeout(r, CONFIG.rateLimit));
-            } catch (e) {
+            } catch (e: any) {
                 console.error(`Failed to send to group ${group.id}:`, e);
                 failCount++;
+
+                // Track failure for Smart Retry
+                await supabase.from('schedule_failures').insert({
+                    schedule_id: schedule.id,
+                    group_id: group.id,
+                    error_message: e.message || 'Unknown Error'
+                });
             }
         }
 
@@ -161,6 +207,11 @@ const processSchedule = async (schedule: Schedule) => {
             .eq('id', schedule.id);
 
         console.log(`Schedule #${schedule.id} completed.`);
+
+        // Handle Recurrence
+        if (schedule.recurrence_rule && successCount > 0) {
+            handleRecurrence(schedule);
+        }
 
     } catch (e: any) {
         console.error(`Error processing schedule #${schedule.id}:`, e);

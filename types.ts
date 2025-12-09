@@ -100,4 +100,6 @@ export interface Schedule {
   error_message?: string;
   type: MessageType;
   payload?: any;
+  recurrence_rule?: string; // 'daily' | 'weekly' | 'monthly'
+  parent_schedule_id?: number | null;
 }

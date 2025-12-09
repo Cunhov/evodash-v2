@@ -44,6 +44,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [filterMinSize, setFilterMinSize] = useState(0);
     const [mentionEveryone, setMentionEveryone] = useState(false);
     const [splitByLines, setSplitByLines] = useState(false);
+    const [recurrenceRule, setRecurrenceRule] = useState('');
 
     // Rich Message States
     const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -160,6 +161,31 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         if (view === 'list') fetchSchedules();
     }, [view, listFilter]);
 
+    // Retry Logic
+    const handleRetry = async (schedule: Schedule) => {
+        if (!schedule.id) return;
+        addLog('Fetching failed numbers...', 'info');
+
+        const { data: failures, error } = await supabase
+            .from('schedule_failures')
+            .select('group_id')
+            .eq('schedule_id', schedule.id);
+
+        if (error || !failures || failures.length === 0) {
+            alert('No specific failure records found for this schedule.');
+            return;
+        }
+
+        const failedIds = failures.map(f => f.group_id);
+
+        // Open in Create Mode
+        handleEdit(schedule);
+        setEditingId(null); // Create new
+        setSelectedGroupIds(new Set(failedIds));
+        setMessage(`[RETRY] ${schedule.text}`);
+        addLog(`Loaded ${failedIds.length} failed groups for retry.`, 'success');
+    };
+
     const handleEdit = (schedule: Schedule) => {
         setEditingId(schedule.id || null);
         setSelectedInstance(schedule.instance);
@@ -183,6 +209,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         }
 
         setMsgType(schedule.type || 'text');
+        setRecurrenceRule(schedule.recurrence_rule || '');
 
         // Restore payload data
         const payload = schedule.payload || {};
@@ -309,7 +336,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             mention_everyone: mentionEveryone,
             status: targetStatus,
             type: msgType,
-            payload: payload
+
+            payload: payload,
+            recurrence_rule: recurrenceRule || null
         };
 
         let error;
@@ -334,6 +363,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             setView('list');
             setEditingId(null);
             setMessage('');
+            setRecurrenceRule('');
             setSelectedGroupIds(new Set());
         }
     };
@@ -372,7 +402,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                     <button onClick={() => { setView('list'); setEditingId(null); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'list' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Calendar size={18} /> Calendar
                     </button>
-                    <button onClick={() => { setView('create'); setEditingId(null); setMessage(''); setSelectedGroupIds(new Set()); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    <button onClick={() => { setView('create'); setEditingId(null); setMessage(''); setRecurrenceRule(''); setSelectedGroupIds(new Set()); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Plus size={18} /> New Schedule
                     </button>
                 </div>
@@ -446,6 +476,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                                                 <Trash2 size={16} />
                                                             </button>
                                                         </>
+                                                    )}
+                                                    {(schedule.status === 'sent' || schedule.status === 'failed') && (
+                                                        <button onClick={() => handleRetry(schedule)} className="p-2 text-slate-400 hover:text-amber-400 transition" title="Retry Failed">
+                                                            <AlertTriangle size={16} />
+                                                        </button>
                                                     )}
                                                 </div>
                                             </td>
@@ -652,120 +687,138 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                             )}
                         </div>
 
-                        {/* Schedule Time */}
-                        {/* Schedule Time */}
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <label className="text-sm font-medium text-slate-300">Schedule For</label>
-                                <div className="text-xs text-slate-500 flex items-center gap-1.5" title="Server Time (UTC)">
-                                    <Globe size={12} />
-                                    Server Time: <span className="text-slate-400 font-mono">{new Date().toISOString().slice(11, 16)} UTC</span>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs text-slate-500 mb-1 block">Date</label>
-                                    <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-500 mb-1 block">Time (Your Local)</label>
-                                    <input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
-                                </div>
-                            </div>
-                            <div className="text-xs text-slate-500 text-center flex items-center justify-center gap-2">
-                                <Clock size={12} />
-                                Will send at: <span className="text-emerald-400 font-medium">
-                                    {(scheduleDate && scheduleTime) ? new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString() : '...'}
-                                </span>
-                            </div>
+                        <div className="flex items-center gap-2">
+                            <label className="text-xs text-slate-400">Repeats:</label>
+                            <select
+                                value={recurrenceRule}
+                                onChange={(e) => setRecurrenceRule(e.target.value)}
+                                className="bg-slate-800 border-none rounded-lg px-2 py-1 text-sm text-white focus:ring-1 focus:ring-emerald-500"
+                            >
+                                <option value="">None</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="monthly">Monthly</option>
+                            </select>
                         </div>
+                    </div>
 
-                        <div className="flex gap-4 pt-4">
-                            <button onClick={() => handleSave('draft')} className="flex-1 bg-slate-700 text-white font-medium py-3 rounded-xl hover:bg-slate-600 transition flex items-center justify-center gap-2">
-                                <Save size={20} /> Save as Draft
-                            </button>
-                            <button onClick={() => handleSave('pending')} className="flex-[2] bg-emerald-500 text-white font-medium py-3 rounded-xl hover:bg-emerald-600 transition flex items-center justify-center gap-2">
-                                <Calendar size={20} /> Schedule Campaign
-                            </button>
+                    {/* Schedule Time */}
+                    {/* Schedule Time */}
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <label className="text-sm font-medium text-slate-300">Schedule For</label>
+                            <div className="text-xs text-slate-500 flex items-center gap-1.5" title="Server Time (UTC)">
+                                <Globe size={12} />
+                                Server Time: <span className="text-slate-400 font-mono">{new Date().toISOString().slice(11, 16)} UTC</span>
+                            </div>
                         </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs text-slate-500 mb-1 block">Date</label>
+                                <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
+                            </div>
+                            <div>
+                                <label className="text-xs text-slate-500 mb-1 block">Time (Your Local)</label>
+                                <input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
+                            </div>
+                        </div>
+                        <div className="text-xs text-slate-500 text-center flex items-center justify-center gap-2">
+                            <Clock size={12} />
+                            Will send at: <span className="text-emerald-400 font-medium">
+                                {(scheduleDate && scheduleTime) ? new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString() : '...'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-4 pt-4">
+                        <button onClick={() => handleSave('draft')} className="flex-1 bg-slate-700 text-white font-medium py-3 rounded-xl hover:bg-slate-600 transition flex items-center justify-center gap-2">
+                            <Save size={20} /> Save as Draft
+                        </button>
+                        <button onClick={() => handleSave('pending')} className="flex-[2] bg-emerald-500 text-white font-medium py-3 rounded-xl hover:bg-emerald-600 transition flex items-center justify-center gap-2">
+                            <Calendar size={20} /> Schedule Campaign
+                        </button>
                     </div>
                 </div>
             )}
 
             {/* Preview Modal */}
-            {previewItem && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                    <div className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-md overflow-hidden shadow-2xl">
-                        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
-                            <h3 className="font-semibold text-white">Message Preview</h3>
-                            <button onClick={() => setPreviewItem(null)} className="text-slate-400 hover:text-white"><Plus className="rotate-45" size={20} /></button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div className="flex items-center gap-3 mb-4">
-                                <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                                    {previewItem.type === 'text' && <FileText size={20} />}
-                                    {previewItem.type === 'media' && <Image size={20} />}
-                                    {previewItem.type === 'audio' && <Music size={20} />}
-                                    {previewItem.type === 'poll' && <List size={20} />}
-                                    {previewItem.type === 'pix' && <DollarSign size={20} />}
-                                    {previewItem.type === 'contact' && <User size={20} />}
-                                    {previewItem.type === 'location' && <MapPin size={20} />}
-                                </div>
-                                <div>
-                                    <div className="text-sm font-medium text-white capitalize">{previewItem.type} Message</div>
-                                    <div className="text-xs text-slate-400">{new Date(previewItem.enviar_em).toLocaleString()}</div>
-                                </div>
+            {
+                previewItem && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                        <div className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-md overflow-hidden shadow-2xl">
+                            <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+                                <h3 className="font-semibold text-white">Message Preview</h3>
+                                <button onClick={() => setPreviewItem(null)} className="text-slate-400 hover:text-white"><Plus className="rotate-45" size={20} /></button>
                             </div>
-
-                            <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 space-y-2">
-                                {previewItem.text && <p className="whitespace-pre-wrap">{previewItem.text}</p>}
-
-                                {previewItem.type === 'poll' && previewItem.payload?.values && (
-                                    <div className="space-y-2 mt-2">
-                                        <div className="font-medium text-white">{previewItem.payload.name}</div>
-                                        {previewItem.payload.values.map((opt: string, i: number) => (
-                                            <div key={i} className="bg-slate-700/50 px-3 py-2 rounded text-xs">{opt}</div>
-                                        ))}
+                            <div className="p-6 space-y-4">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                        {previewItem.type === 'text' && <FileText size={20} />}
+                                        {previewItem.type === 'media' && <Image size={20} />}
+                                        {previewItem.type === 'audio' && <Music size={20} />}
+                                        {previewItem.type === 'poll' && <List size={20} />}
+                                        {previewItem.type === 'pix' && <DollarSign size={20} />}
+                                        {previewItem.type === 'contact' && <User size={20} />}
+                                        {previewItem.type === 'location' && <MapPin size={20} />}
                                     </div>
-                                )}
-
-                                {previewItem.type === 'pix' && (
-                                    <div className="text-emerald-400 font-mono bg-emerald-500/10 p-2 rounded text-center">
-                                        PIX: {previewItem.payload?.key} <br />
-                                        R$ {previewItem.payload?.amount}
+                                    <div>
+                                        <div className="text-sm font-medium text-white capitalize">{previewItem.type} Message</div>
+                                        <div className="text-xs text-slate-400">{new Date(previewItem.enviar_em).toLocaleString()}</div>
                                     </div>
-                                )}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 text-xs text-slate-400 pt-2 border-t border-slate-700/50">
-                                <div>
-                                    <span className="block text-slate-500 mb-1">Instance</span>
-                                    <span className="text-white">{previewItem.instance}</span>
                                 </div>
-                                <div>
-                                    <span className="block text-slate-500 mb-1">Status</span>
-                                    <span className={`capitalize ${previewItem.status === 'sent' ? 'text-emerald-400' : 'text-amber-400'}`}>{previewItem.status}</span>
+
+                                <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 space-y-2">
+                                    {previewItem.text && <p className="whitespace-pre-wrap">{previewItem.text}</p>}
+
+                                    {previewItem.type === 'poll' && previewItem.payload?.values && (
+                                        <div className="space-y-2 mt-2">
+                                            <div className="font-medium text-white">{previewItem.payload.name}</div>
+                                            {previewItem.payload.values.map((opt: string, i: number) => (
+                                                <div key={i} className="bg-slate-700/50 px-3 py-2 rounded text-xs">{opt}</div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {previewItem.type === 'pix' && (
+                                        <div className="text-emerald-400 font-mono bg-emerald-500/10 p-2 rounded text-center">
+                                            PIX: {previewItem.payload?.key} <br />
+                                            R$ {previewItem.payload?.amount}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 text-xs text-slate-400 pt-2 border-t border-slate-700/50">
+                                    <div>
+                                        <span className="block text-slate-500 mb-1">Instance</span>
+                                        <span className="text-white">{previewItem.instance}</span>
+                                    </div>
+                                    <div>
+                                        <span className="block text-slate-500 mb-1">Status</span>
+                                        <span className={`capitalize ${previewItem.status === 'sent' ? 'text-emerald-400' : 'text-amber-400'}`}>{previewItem.status}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* AI Modal */}
-            {showAiModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
-                        <h3 className="text-white font-bold mb-4">AI Assistant</h3>
-                        <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} placeholder="Describe your message..." className="w-full bg-slate-900 border border-slate-700 rounded p-3 text-white mb-4" rows={4} />
-                        <div className="flex justify-end gap-2">
-                            <button onClick={() => setShowAiModal(false)} className="px-4 py-2 text-slate-400">Cancel</button>
-                            <button onClick={handleAiGenerate} className="px-4 py-2 bg-purple-600 text-white rounded">Generate</button>
+            {
+                showAiModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
+                            <h3 className="text-white font-bold mb-4">AI Assistant</h3>
+                            <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} placeholder="Describe your message..." className="w-full bg-slate-900 border border-slate-700 rounded p-3 text-white mb-4" rows={4} />
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setShowAiModal(false)} className="px-4 py-2 text-slate-400">Cancel</button>
+                                <button onClick={handleAiGenerate} className="px-4 py-2 bg-purple-600 text-white rounded">Generate</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 
