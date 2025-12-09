@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Save, Server, Key, Shield, Smartphone, CheckSquare, Square, Zap, Globe } from 'lucide-react';
 import { EvoConfig } from '../types';
-import { saveConfig } from '../services/storage';
 
 interface ConnectionSetupProps {
-  onConfigSave: (config: EvoConfig) => void;
+  onConfigSave: (config: EvoConfig, remember: boolean) => void;
 }
 
 const ConnectionSetup: React.FC<ConnectionSetupProps> = ({ onConfigSave }) => {
@@ -57,11 +56,7 @@ const ConnectionSetup: React.FC<ConnectionSetupProps> = ({ onConfigSave }) => {
       provider: provider
     };
 
-    if (rememberMe) {
-      saveConfig(config);
-    }
-    
-    onConfigSave(config);
+    onConfigSave(config, rememberMe);
   };
 
   return (
@@ -74,7 +69,7 @@ const ConnectionSetup: React.FC<ConnectionSetupProps> = ({ onConfigSave }) => {
                 {isEvo ? <Server className={`w-12 h-12 ${accentColor}`} /> : <Zap className={`w-12 h-12 ${accentColor}`} />}
               </div>
             </div>
-            
+
             <h2 className="text-2xl font-bold text-center text-white mb-2">
               Connect to {isEvo ? 'EvolutionAPI' : 'UazApi'}
             </h2>
@@ -84,38 +79,38 @@ const ConnectionSetup: React.FC<ConnectionSetupProps> = ({ onConfigSave }) => {
 
             {/* Provider Toggle */}
             <div className="grid grid-cols-2 gap-2 mb-4 bg-slate-900/50 p-1 rounded-lg">
-               <button 
-                  type="button"
-                  onClick={() => setProvider('evolution')}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${provider === 'evolution' ? 'bg-slate-700 text-white shadow ring-1 ring-emerald-500/50' : 'text-slate-400 hover:text-slate-200'}`}
-               >
-                  <Globe size={16} className={provider === 'evolution' ? 'text-emerald-400' : ''} /> Evolution
-               </button>
-               <button 
-                  type="button"
-                  onClick={() => setProvider('uazapi')}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${provider === 'uazapi' ? 'bg-slate-700 text-white shadow ring-1 ring-violet-500/50' : 'text-slate-400 hover:text-slate-200'}`}
-               >
-                  <Zap size={16} className={provider === 'uazapi' ? 'text-violet-400' : ''} /> UazApi
-               </button>
+              <button
+                type="button"
+                onClick={() => setProvider('evolution')}
+                className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${provider === 'evolution' ? 'bg-slate-700 text-white shadow ring-1 ring-emerald-500/50' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                <Globe size={16} className={provider === 'evolution' ? 'text-emerald-400' : ''} /> Evolution
+              </button>
+              <button
+                type="button"
+                onClick={() => setProvider('uazapi')}
+                className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${provider === 'uazapi' ? 'bg-slate-700 text-white shadow ring-1 ring-violet-500/50' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                <Zap size={16} className={provider === 'uazapi' ? 'text-violet-400' : ''} /> UazApi
+              </button>
             </div>
 
             {/* Mode Tabs */}
             <div className="grid grid-cols-2 gap-2 mb-6 bg-slate-900/50 p-1 rounded-lg">
-               <button 
-                  type="button"
-                  onClick={() => setMode('global')}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'global' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-               >
-                  <Shield size={16} /> Global Admin
-               </button>
-               <button 
-                  type="button"
-                  onClick={() => setMode('instance')}
-                  className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'instance' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-               >
-                  <Smartphone size={16} /> Single Instance
-               </button>
+              <button
+                type="button"
+                onClick={() => setMode('global')}
+                className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'global' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                <Shield size={16} /> Global Admin
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('instance')}
+                className={`flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'instance' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                <Smartphone size={16} /> Single Instance
+              </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -175,7 +170,7 @@ const ConnectionSetup: React.FC<ConnectionSetupProps> = ({ onConfigSave }) => {
                 </div>
               </div>
 
-              <div 
+              <div
                 className="flex items-center gap-2 cursor-pointer text-slate-300 select-none"
                 onClick={() => setRememberMe(!rememberMe)}
               >

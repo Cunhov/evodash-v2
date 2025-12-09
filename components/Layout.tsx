@@ -1,19 +1,19 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { clearConfig, getStoredConfig } from '../services/storage';
+import { clearConfig } from '../services/configService';
 import ConsoleLogger from './ConsoleLogger';
 import { Server, Users, MessageSquare, Menu, X, Calendar, LayoutDashboard, Send, LogOut, Smartphone, Zap } from 'lucide-react';
+import { EvoConfig } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;
+  config?: EvoConfig | null;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+const Layout: React.FC<LayoutProps> = ({ children, config }) => {
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
-  // Read config directly to determine theme
-  const config = getStoredConfig();
   const provider = config?.provider || 'evolution';
   const isEvo = provider === 'evolution';
 
