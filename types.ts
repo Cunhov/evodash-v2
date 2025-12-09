@@ -103,3 +103,11 @@ export interface Schedule {
   recurrence_rule?: string; // 'daily' | 'weekly' | 'monthly'
   parent_schedule_id?: number | null;
 }
+
+export interface Template {
+  id: string;
+  name: string;
+  content: string;
+  type: string;
+  created_at: string;
+}

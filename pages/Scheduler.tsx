@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle, Globe } from 'lucide-react';
-import { EvoConfig, Group, Schedule, MessageType } from '../types';
+import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle, Globe, X } from 'lucide-react';
+import { EvoConfig, Group, Schedule, MessageType, Template } from '../types';
 import { getApiClient } from '../services/apiAdapter';
 import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
@@ -59,6 +59,44 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     // Preview
     const [previewItem, setPreviewItem] = useState<Schedule | null>(null);
+
+    // Templates
+    const [showTemplateModal, setShowTemplateModal] = useState(false);
+    const [templates, setTemplates] = useState<Template[]>([]);
+    const [newTemplateName, setNewTemplateName] = useState('');
+    const [newTemplateContent, setNewTemplateContent] = useState('');
+    const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+
+    const fetchTemplates = async () => {
+        const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+        if (data) setTemplates(data);
+    };
+
+    const handleSaveTemplate = async () => {
+        if (!newTemplateName || !newTemplateContent) return;
+        const { error } = await supabase.from('templates').insert({ name: newTemplateName, content: newTemplateContent, type: 'text' });
+        if (error) {
+            addLog('Failed to save template', 'error');
+        } else {
+            addLog('Template saved!', 'success');
+            setNewTemplateName('');
+            setNewTemplateContent('');
+            setIsCreatingTemplate(false);
+            fetchTemplates();
+        }
+    };
+
+    const handleDeleteTemplate = async (id: string) => {
+        if (!confirm('Delete template?')) return;
+        await supabase.from('templates').delete().eq('id', id);
+        fetchTemplates();
+    };
+
+    const handleLoadTemplate = (content: string) => {
+        setMessage(content);
+        setShowTemplateModal(false);
+        addLog('Template loaded', 'success');
+    };
 
     const uploadToStorage = async (file: File): Promise<string> => {
         const fileExt = file.name.split('.').pop();
@@ -625,7 +663,10 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                 <div>
                                     <div className="flex justify-between items-center mb-1">
                                         <label className="text-xs text-slate-400">{msgType === 'location' ? 'Address (Optional)' : 'Message / Caption'}</label>
-                                        <button type="button" onClick={() => setShowAiModal(true)} className="text-xs text-purple-400 flex items-center gap-1 hover:text-purple-300"><Sparkles size={12} /> AI Write</button>
+                                        <div className="flex gap-2">
+                                            <button type="button" onClick={() => { setShowTemplateModal(true); fetchTemplates(); }} className="text-xs text-emerald-400 flex items-center gap-1 hover:text-emerald-300"><FileText size={12} /> Templates</button>
+                                            <button type="button" onClick={() => setShowAiModal(true)} className="text-xs text-purple-400 flex items-center gap-1 hover:text-purple-300"><Sparkles size={12} /> AI Write</button>
+                                        </div>
                                     </div>
                                     <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3" placeholder={msgType === 'location' ? 'Type address...' : 'Type your message here...'} />
                                 </div>

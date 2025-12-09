@@ -2,17 +2,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { clearConfig, getStoredConfig } from '../services/storage';
 import ConsoleLogger from './ConsoleLogger';
-import {
-  LayoutDashboard,
-  Send,
-  LogOut,
-  Smartphone,
-  Menu,
-  X,
-  Users,
-  Zap,
-  Calendar
-} from 'lucide-react';
+import { Server, Users, MessageSquare, Menu, X, Calendar, LayoutDashboard, Send, LogOut, Smartphone, Zap } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -47,7 +37,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   const navItems = [
-    { icon: <LayoutDashboard size={20} />, label: 'Instances', path: '/instances' },
+    { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/dashboard' }, // Added Dashboard link
+    { icon: <Server size={20} />, label: 'Instances', path: '/instances' }, // Changed icon for Instances
     { icon: <Users size={20} />, label: 'Groups', path: '/groups' },
     { icon: <Send size={20} />, label: 'Messenger', path: '/send' },
     { icon: <Calendar size={20} />, label: 'Scheduler', path: '/scheduler' },

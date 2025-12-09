@@ -6,6 +6,7 @@ import InstanceManager from './pages/InstanceManager';
 import GroupManager from './pages/GroupManager';
 import MessageSender from './pages/MessageSender';
 import Scheduler from './pages/Scheduler';
+import Dashboard from './pages/Dashboard';
 import { EvoConfig } from './types';
 import { getStoredConfig } from './services/storage';
 import { LogProvider } from './context/LogContext';
@@ -36,7 +37,8 @@ const App: React.FC = () => {
       <Router>
         <Layout>
           <Routes>
-            <Route path="/" element={<Navigate to="/instances" replace />} />
+            <Route path="/" element={<Dashboard config={config} />} />
+            <Route path="/dashboard" element={<Dashboard config={config} />} />
             <Route path="/instances" element={<InstanceManager config={config} />} />
             <Route path="/groups" element={<GroupManager config={config} />} />
             <Route path="/send" element={<MessageSender config={config} />} />
