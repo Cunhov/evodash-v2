@@ -53,3 +53,34 @@ on public.schedules
 for all
 using (true)
 with check (true);
+
+-- Settings Table
+create table if not exists settings (
+  id uuid default gen_random_uuid() primary key,
+  key text unique not null,
+  value jsonb not null,
+  description text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Seed defaults
+insert into settings (key, value, description) values
+('cleanup_retention_days', '30', 'Days to keep sent media'),
+('worker_rate_limit_ms', '2000', 'Delay between messages in milliseconds'),
+('worker_poll_interval_ms', '5000', 'Worker polling frequency')
+on conflict (key) do nothing;
+
+alter table settings enable row level security;
+
+create policy "Enable read access for all users"
+on settings for select
+using (true);
+
+create policy "Enable write access for authenticated users"
+on settings for insert
+with check (auth.role() = 'authenticated');
+
+create policy "Enable update access for authenticated users"
+on settings for update
+using (auth.role() = 'authenticated');

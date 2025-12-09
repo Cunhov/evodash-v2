@@ -19,6 +19,30 @@ console.log('Configuration:', {
 });
 console.log('Worker started. Polling for schedules every 5s...');
 
+// Configuration Defaults
+let CONFIG = {
+    pollInterval: 5000,
+    rateLimit: 2000,
+    cleanupRetention: 30
+};
+
+// Fetch Settings from DB
+const loadSettings = async () => {
+    try {
+        const { data, error } = await supabase.from('settings').select('*');
+        if (!error && data) {
+            data.forEach((setting: any) => {
+                if (setting.key === 'worker_poll_interval_ms') CONFIG.pollInterval = parseInt(setting.value);
+                if (setting.key === 'worker_rate_limit_ms') CONFIG.rateLimit = parseInt(setting.value);
+                if (setting.key === 'cleanup_retention_days') CONFIG.cleanupRetention = parseInt(setting.value);
+            });
+            console.log('[Config] Settings loaded:', CONFIG);
+        }
+    } catch (e) {
+        console.error('[Config] Failed to load settings, using defaults.', e);
+    }
+};
+
 const processSchedule = async (schedule: Schedule) => {
     console.log(`Processing schedule #${schedule.id}`);
 
@@ -119,7 +143,7 @@ const processSchedule = async (schedule: Schedule) => {
                 await api.sendMessage(schedule.instance, msgType, payload);
                 successCount++;
                 // Rate limit
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, CONFIG.rateLimit));
             } catch (e) {
                 console.error(`Failed to send to group ${group.id}:`, e);
                 failCount++;
@@ -180,10 +204,9 @@ const run = async () => {
 // Cleanup logic
 const cleanupOldMedia = async () => {
     try {
-        console.log('[Cleanup] Starting dirty media cleanup...');
-        const retentionDays = 30;
+        console.log(`[Cleanup] Starting dirty media cleanup (Retention: ${CONFIG.cleanupRetention} days)...`);
         const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+        cutoffDate.setDate(cutoffDate.getDate() - CONFIG.cleanupRetention);
 
         // 1. Get old sent schedules with media
         const { data: oldSchedules, error } = await supabase
@@ -243,11 +266,24 @@ const cleanupOldMedia = async () => {
     }
 };
 
-// Start Loop
-setInterval(run, POLL_INTERVAL);
-// Run cleanup every 24 hours (86400000 ms)
-setInterval(cleanupOldMedia, 86400000);
+// Main Loop Wrapper
+const startWorker = async () => {
+    await loadSettings();
 
-// Run immediately on start
-run();
-cleanupOldMedia(); // Run once on startup too
+    // Initial run
+    run();
+    cleanupOldMedia();
+
+    // Poll Loop
+    setInterval(() => {
+        run();
+    }, CONFIG.pollInterval);
+
+    // Cleanup Loop (24h)
+    setInterval(cleanupOldMedia, 86400000);
+
+    // Refresh Settings Loop (every 1 hour)
+    setInterval(loadSettings, 3600000);
+};
+
+startWorker();
