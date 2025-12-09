@@ -19,6 +19,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [listFilter, setListFilter] = useState<'pending' | 'history' | 'draft'>('pending');
     const [editingId, setEditingId] = useState<number | null>(null);
 
+    // Pagination
+    const [page, setPage] = useState(0);
+    const PAGE_SIZE = 20;
+    const [hasMore, setHasMore] = useState(true);
+
     // Data
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [instances, setInstances] = useState<any[]>([]);
@@ -112,12 +117,17 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     }, [selectedInstance]);
 
     // Fetch Schedules
-    const fetchSchedules = async () => {
+    const fetchSchedules = async (isLoadMore = false) => {
         setLoading(true);
+        const currentPage = isLoadMore ? page + 1 : 0;
+        const from = currentPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+
         let query = supabase
             .from('schedules')
             .select('*')
-            .order('enviar_em', { ascending: true });
+            .order('enviar_em', { ascending: true })
+            .range(from, to);
 
         if (listFilter === 'pending') {
             query = query.eq('status', 'pending');
@@ -132,7 +142,15 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         if (error) {
             addLog(`Error fetching schedules: ${error.message}`, 'error');
         } else {
-            setSchedules(data || []);
+            if (isLoadMore) {
+                setSchedules(prev => [...prev, ...(data || [])]);
+                setPage(currentPage);
+            } else {
+                setSchedules(data || []);
+                setPage(0);
+            }
+            // If we got fewer items than requested, we reached the end
+            setHasMore((data?.length || 0) === PAGE_SIZE);
         }
         setLoading(false);
     };
@@ -367,7 +385,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                         <button onClick={() => setListFilter('draft')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${listFilter === 'draft' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-400 hover:text-white'}`}>Drafts</button>
                         <button onClick={() => setListFilter('history')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${listFilter === 'history' ? 'bg-blue-500/10 text-blue-400' : 'text-slate-400 hover:text-white'}`}>History</button>
                         <div className="flex-1" />
-                        <button onClick={fetchSchedules} className="p-2 text-slate-400 hover:text-white transition"><RefreshCw size={18} /></button>
+                        <button onClick={() => fetchSchedules()} className="p-2 text-slate-400 hover:text-white transition"><RefreshCw size={18} /></button>
                     </div>
 
                     <div className="overflow-x-auto">
@@ -435,6 +453,19 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                 )}
                             </tbody>
                         </table>
+
+                        {/* Load More Trigger */}
+                        {hasMore && schedules.length > 0 && (
+                            <div className="p-4 border-t border-slate-700/50 flex justify-center">
+                                <button
+                                    onClick={() => fetchSchedules(true)}
+                                    disabled={loading}
+                                    className="text-sm text-emerald-400 hover:text-emerald-300 font-medium disabled:opacity-50"
+                                >
+                                    {loading ? 'Loading...' : 'Load More'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
