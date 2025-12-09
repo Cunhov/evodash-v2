@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle } from 'lucide-react';
+import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle, Globe } from 'lucide-react';
 import { EvoConfig, Group, Schedule, MessageType } from '../types';
 import { getApiClient } from '../services/apiAdapter';
 import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
 import { generateMarketingMessage } from '../services/geminiService';
+import { MediaUploader } from '../components/MediaUploader';
 
 interface SchedulerProps {
     config: EvoConfig;
@@ -607,9 +608,13 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                             </div>
 
                             {(msgType === 'media' || msgType === 'audio') && (
-                                <div>
+                                <div className="space-y-2">
                                     <label className="text-xs text-slate-400 mb-1 block">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
-                                    <input type="file" onChange={(e) => setMediaFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
+                                    <MediaUploader
+                                        file={mediaFile}
+                                        onFileSelect={setMediaFile}
+                                        accept={msgType === 'audio' ? 'audio/*' : 'image/*,video/*,application/*'}
+                                    />
                                 </div>
                             )}
 
@@ -648,11 +653,30 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                         </div>
 
                         {/* Schedule Time */}
+                        {/* Schedule Time */}
                         <div className="space-y-4">
-                            <label className="text-sm font-medium text-slate-300">Schedule For</label>
+                            <div className="flex justify-between items-center">
+                                <label className="text-sm font-medium text-slate-300">Schedule For</label>
+                                <div className="text-xs text-slate-500 flex items-center gap-1.5" title="Server Time (UTC)">
+                                    <Globe size={12} />
+                                    Server Time: <span className="text-slate-400 font-mono">{new Date().toISOString().slice(11, 16)} UTC</span>
+                                </div>
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
-                                <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
-                                <input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
+                                <div>
+                                    <label className="text-xs text-slate-500 mb-1 block">Date</label>
+                                    <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-slate-500 mb-1 block">Time (Your Local)</label>
+                                    <input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" />
+                                </div>
+                            </div>
+                            <div className="text-xs text-slate-500 text-center flex items-center justify-center gap-2">
+                                <Clock size={12} />
+                                Will send at: <span className="text-emerald-400 font-medium">
+                                    {(scheduleDate && scheduleTime) ? new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString() : '...'}
+                                </span>
                             </div>
                         </div>
 
