@@ -177,6 +177,77 @@ const run = async () => {
     }
 };
 
+// Cleanup logic
+const cleanupOldMedia = async () => {
+    try {
+        console.log('[Cleanup] Starting dirty media cleanup...');
+        const retentionDays = 30;
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+        // 1. Get old sent schedules with media
+        const { data: oldSchedules, error } = await supabase
+            .from('schedules')
+            .select('payload')
+            .eq('status', 'sent')
+            .lt('enviar_em', cutoffDate.toISOString())
+            .not('payload', 'is', null);
+
+        if (error) {
+            console.error('[Cleanup] Error fetching old schedules:', error);
+            return;
+        }
+
+        if (!oldSchedules || oldSchedules.length === 0) {
+            console.log('[Cleanup] No old schedules found.');
+            return;
+        }
+
+        const filesToDelete: string[] = [];
+
+        // 2. Extract filenames from payloads
+        for (const schedule of oldSchedules) {
+            const payload = schedule.payload;
+            if (payload && payload.media && payload.media.includes('/storage/v1/object/public/schedules/')) {
+                // Extract filename from URL
+                // URL format: https://.../storage/v1/object/public/schedules/[filename]
+                const parts = payload.media.split('/schedules/');
+                if (parts.length === 2) {
+                    const fileName = parts[1];
+                    filesToDelete.push(fileName);
+                }
+            }
+        }
+
+        if (filesToDelete.length === 0) {
+            console.log('[Cleanup] No media files to delete.');
+            return;
+        }
+
+        console.log(`[Cleanup] Found ${filesToDelete.length} files to delete.`);
+
+        // 3. Delete from Storage
+        // Supabase remove takes an array of file paths (filenames in bucket root)
+        const { data: removeData, error: removeError } = await supabase.storage
+            .from('schedules')
+            .remove(filesToDelete);
+
+        if (removeError) {
+            console.error('[Cleanup] Error deleting files:', removeError);
+        } else {
+            console.log('[Cleanup] Successfully deleted files:', removeData);
+        }
+
+    } catch (e) {
+        console.error('[Cleanup] Unexpected error:', e);
+    }
+};
+
 // Start Loop
 setInterval(run, POLL_INTERVAL);
-run(); // Run immediately on start
+// Run cleanup every 24 hours (86400000 ms)
+setInterval(cleanupOldMedia, 86400000);
+
+// Run immediately on start
+run();
+cleanupOldMedia(); // Run once on startup too
