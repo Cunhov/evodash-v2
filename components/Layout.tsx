@@ -4,6 +4,7 @@ import { clearConfig } from '../services/configService';
 import ConsoleLogger from './ConsoleLogger';
 import { Server, Users, MessageSquare, Menu, X, Calendar, LayoutDashboard, Send, LogOut, Smartphone, Zap } from 'lucide-react';
 import { EvoConfig } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -12,6 +13,7 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, config }) => {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
   const provider = config?.provider || 'evolution';
@@ -28,11 +30,12 @@ const Layout: React.FC<LayoutProps> = ({ children, config }) => {
     mobileActive: isEvo ? 'bg-emerald-600 text-white' : 'bg-violet-600 text-white'
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (window.confirm('Disconnect from your server?')) {
-      clearConfig();
-      navigate('/');
-      window.location.reload();
+      await clearConfig();
+      await signOut(); // Signs out from Supabase
+      navigate('/login'); // Navigate to login specifically
+      // window.location.reload(); // Not needed if state updates cause re-render/redirect
     }
   };
 
