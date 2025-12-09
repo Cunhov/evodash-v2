@@ -7,6 +7,7 @@ import GroupManager from './pages/GroupManager';
 import MessageSender from './pages/MessageSender';
 import Scheduler from './pages/Scheduler';
 import Dashboard from './pages/Dashboard';
+import Contacts from './pages/Contacts';
 import Login from './pages/Login';
 import { EvoConfig } from './types';
 import { getConfig, saveConfig } from './services/configService';
@@ -53,6 +54,7 @@ const AppRoutes: React.FC = () => {
                 <Routes>
                   <Route path="/" element={<Dashboard config={config} />} />
                   <Route path="/dashboard" element={<Dashboard config={config} />} />
+                  <Route path="/contacts" element={<Contacts />} />
                   <Route path="/instances" element={<InstanceManager config={config} />} />
                   <Route path="/groups" element={<GroupManager config={config} />} />
                   <Route path="/send" element={<MessageSender config={config} />} />

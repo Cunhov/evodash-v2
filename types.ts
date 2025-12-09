@@ -71,12 +71,24 @@ export interface AudioMessagePayload {
 }
 
 // App Configuration Types
+
+export interface Contact {
+  id: string;
+  user_id?: string;
+  phone: string;
+  name?: string;
+  email?: string;
+  tags?: string[];
+  notes?: string;
+  created_at?: string;
+}
+
 export interface EvoConfig {
   baseUrl: string;
   apiKey: string; // Unified key (Global Key or Instance Token)
-  mode: 'global' | 'instance';
+  mode?: 'instance' | 'global';
   instanceName?: string; // Required if mode === 'instance'
-  provider: 'evolution' | 'uazapi';
+  provider?: 'evolution' | 'uazapi';
 }
 
 export interface SidebarItem {

@@ -40,8 +40,9 @@ const Layout: React.FC<LayoutProps> = ({ children, config }) => {
   };
 
   const navItems = [
-    { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/dashboard' }, // Added Dashboard link
-    { icon: <Server size={20} />, label: 'Instances', path: '/instances' }, // Changed icon for Instances
+    { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/dashboard' },
+    { icon: <Users size={20} />, label: 'Contacts', path: '/contacts' }, // New CRM Link
+    { icon: <Server size={20} />, label: 'Instances', path: '/instances' },
     { icon: <Users size={20} />, label: 'Groups', path: '/groups' },
     { icon: <Send size={20} />, label: 'Messenger', path: '/send' },
     { icon: <Calendar size={20} />, label: 'Scheduler', path: '/scheduler' },

@@ -22,6 +22,23 @@ const Dashboard: React.FC<DashboardProps> = ({ config }) => {
 
     useEffect(() => {
         fetchDashboardData();
+
+        // Realtime Subscription
+        const channel = supabase
+            .channel('dashboard-db-changes')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'schedules' },
+                () => {
+                    // Debounce simple refresh
+                    fetchDashboardData();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     const fetchDashboardData = async () => {
