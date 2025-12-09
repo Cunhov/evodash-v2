@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle, Globe, X } from 'lucide-react';
+import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle, Globe, X, GitMerge } from 'lucide-react';
 import { EvoConfig, Group, Schedule, MessageType, Template } from '../types';
+import { WorkflowEditor } from '../components/WorkflowEditor';
 import { getApiClient } from '../services/apiAdapter';
 import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
@@ -16,8 +17,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const api = getApiClient(config);
 
     // View Mode
-    const [view, setView] = useState<'list' | 'create'>('list');
+    const [view, setView] = useState<'list' | 'create' | 'workflow'>('list');
     const [listFilter, setListFilter] = useState<'pending' | 'history' | 'draft'>('pending');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [editingId, setEditingId] = useState<number | null>(null);
 
     // Pagination
@@ -40,7 +42,8 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     // Filters & Options
     const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
     const [groupSearch, setGroupSearch] = useState('');
-    const [groupSortSize, setGroupSortSize] = useState(false);
+    const [groupSortKey, setGroupSortKey] = useState<'subject' | 'size'>('subject');
+    const [groupSortOrder, setGroupSortOrder] = useState<'asc' | 'desc'>('asc');
     const [filterMinSize, setFilterMinSize] = useState(0);
     const [mentionEveryone, setMentionEveryone] = useState(false);
     const [splitByLines, setSplitByLines] = useState(false);
@@ -166,7 +169,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         let query = supabase
             .from('schedules')
             .select('*')
-            .order('enviar_em', { ascending: true })
+            .order('enviar_em', { ascending: sortOrder === 'asc' })
             .range(from, to);
 
         if (listFilter === 'pending') {
@@ -197,7 +200,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     useEffect(() => {
         if (view === 'list') fetchSchedules();
-    }, [view, listFilter]);
+    }, [view, listFilter, sortOrder]);
 
     // Retry Logic
     const handleRetry = async (schedule: Schedule) => {
@@ -292,10 +295,10 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             return;
         }
 
-        const dateTime = new Date(`${scheduleDate}T${scheduleTime}`);
+        const baseDateTime = new Date(`${scheduleDate}T${scheduleTime}`);
         const now = new Date();
 
-        if (targetStatus === 'pending' && dateTime <= now) {
+        if (targetStatus === 'pending' && baseDateTime <= now) {
             alert('Schedule time must be in the future');
             return;
         }
@@ -305,10 +308,17 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             minSize: filterMinSize
         });
 
-        // Construct Payload
-        let payload: any = {};
+        // 1. Prepare chunks
+        let chunks: string[] = [message];
+        if (msgType === 'text' && splitByLines) {
+            chunks = message.split('\n').filter(line => line.trim() !== '');
+            if (chunks.length === 0) chunks = [message];
+        }
+
+        const apiKey = config.apiKey;
         let mediaUrl = '';
 
+        // Upload media ONCE if needed (shared across all chunks if we were splitting media, though splitting handles text mostly)
         if (mediaFile && (msgType === 'media' || msgType === 'audio')) {
             try {
                 addLog('Uploading media...', 'info');
@@ -320,84 +330,108 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             }
         }
 
-        if (msgType === 'media') {
-            const typeStr = mediaFile?.type.split('/')[0] || 'image';
-            // Sanitize filename: remove special chars, truncate to 50 chars, preserve extension
-            const originalName = mediaFile?.name || 'file';
-            const ext = originalName.split('.').pop() || 'png'; // Default to png if no ext
-            const name = originalName.replace(`.${ext}`, '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-            const saneFileName = `${name}.${ext}`;
+        // 2. Iterate and Save
+        let successCount = 0;
+        let errorCount = 0;
 
-            // Evolution API expects "image" or "video" or "document"
-            let mediaType = 'image';
-            if (typeStr === 'video') mediaType = 'video';
-            else if (typeStr === 'application' || typeStr === 'text') mediaType = 'document';
+        for (let i = 0; i < chunks.length; i++) {
+            const chunkText = chunks[i];
 
-            payload = {
-                mediatype: mediaType,
-                mimetype: mediaFile?.type || 'image/png',
-                caption: message,
-                media: mediaUrl,
-                fileName: saneFileName
+            // Add delay for subsequent chunks to ensure order
+            const chunkDateTime = new Date(baseDateTime.getTime() + (i * 2000));
+
+            let payload: any = {};
+
+            if (msgType === 'text') {
+                // For text splitting, the payload/text is just the chunk
+                // No special payload needed for simple text usually, but if your backend expects it:
+                // payload = { text: chunkText }; 
+                // Based on existing code, text is in the root 'text' col, payload might be empty for simple text
+            } else if (msgType === 'media') {
+                const typeStr = mediaFile?.type.split('/')[0] || 'image';
+                // Sanitize filename: remove special chars, truncate to 50 chars, preserve extension
+                const originalName = mediaFile?.name || 'file';
+                const ext = originalName.split('.').pop() || 'png'; // Default to png if no ext
+                const name = originalName.replace(`.${ext}`, '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+                const saneFileName = `${name}.${ext}`;
+
+                let mediaType = 'image';
+                if (typeStr === 'video') mediaType = 'video';
+                else if (typeStr === 'application' || typeStr === 'text') mediaType = 'document';
+
+                payload = {
+                    mediatype: mediaType,
+                    mimetype: mediaFile?.type || 'image/png',
+                    caption: chunkText, // Use chunk as caption if splitting media captions? (Unlikely for media but safe)
+                    media: mediaUrl,
+                    fileName: saneFileName
+                };
+            } else if (msgType === 'audio') {
+                payload = { audio: mediaUrl };
+            } else if (msgType === 'poll') {
+                payload = {
+                    name: pollName,
+                    selectableCount: 1,
+                    values: pollOptions.filter(o => o.trim() !== '')
+                };
+            } else if (msgType === 'pix') {
+                payload = { key: pixKey, type: 'cpf', amount: parseFloat(pixAmount) || 0 };
+            } else if (msgType === 'contact') {
+                payload = { contactMessage: [{ fullName: contactName, wuid: contactPhone, phoneNumber: contactPhone }] };
+            } else if (msgType === 'location') {
+                payload = {
+                    locationMessage: {
+                        latitude: parseFloat(latitude),
+                        longitude: parseFloat(longitude),
+                        name: 'Location',
+                        address: chunkText // Use chunk if iterating
+                    }
+                };
+            }
+
+            const dbPayload = {
+                text: chunkText,
+                enviar_em: chunkDateTime.toISOString(),
+                instance: selectedInstance,
+                api_key: apiKey,
+                group_filter: groupFilter,
+                min_size_group: filterMinSize,
+                mention_everyone: mentionEveryone,
+                status: targetStatus,
+                type: msgType,
+                payload: payload,
+                recurrence_rule: recurrenceRule || null
             };
-        } else if (msgType === 'audio') {
-            payload = { audio: mediaUrl };
-        } else if (msgType === 'poll') {
-            payload = {
-                name: pollName,
-                selectableCount: 1,
-                values: pollOptions.filter(o => o.trim() !== '')
-            };
-        } else if (msgType === 'pix') {
-            payload = { key: pixKey, type: 'cpf', amount: parseFloat(pixAmount) || 0 };
-        } else if (msgType === 'contact') {
-            payload = { contactMessage: [{ fullName: contactName, wuid: contactPhone, phoneNumber: contactPhone }] };
-        } else if (msgType === 'location') {
-            payload = {
-                locationMessage: {
-                    latitude: parseFloat(latitude),
-                    longitude: parseFloat(longitude),
-                    name: 'Location',
-                    address: message
-                }
-            };
+
+            let error;
+            // logic: If we are editing, update the FIRST chunk into the existing ID.
+            // All subsequent chunks (or if we are not editing) get INSERTed.
+            if (editingId && i === 0) {
+                const { error: updateError } = await supabase
+                    .from('schedules')
+                    .update(dbPayload)
+                    .eq('id', editingId);
+                error = updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('schedules')
+                    .insert(dbPayload);
+                error = insertError;
+            }
+
+            if (error) {
+                console.error('Error saving schedule chunk', error);
+                errorCount++;
+            } else {
+                successCount++;
+            }
         }
 
-        const apiKey = config.apiKey;
-        const dbPayload = {
-            text: message, // Keep for backward compatibility / display
-            enviar_em: dateTime.toISOString(),
-            instance: selectedInstance,
-            api_key: apiKey,
-            group_filter: groupFilter,
-            min_size_group: filterMinSize,
-            mention_everyone: mentionEveryone,
-            status: targetStatus,
-            type: msgType,
-
-            payload: payload,
-            recurrence_rule: recurrenceRule || null
-        };
-
-        let error;
-        if (editingId) {
-            const { error: updateError } = await supabase
-                .from('schedules')
-                .update(dbPayload)
-                .eq('id', editingId);
-            error = updateError;
+        if (errorCount > 0) {
+            addLog(`Completed with errors. Success: ${successCount}, Failed: ${errorCount}`, 'warning');
+            alert(`Completed with errors. Some messages may not have been scheduled.`);
         } else {
-            const { error: insertError } = await supabase
-                .from('schedules')
-                .insert(dbPayload);
-            error = insertError;
-        }
-
-        if (error) {
-            addLog(`Failed to save schedule: ${error.message}`, 'error');
-            alert('Failed to save schedule');
-        } else {
-            addLog(editingId ? 'Schedule updated' : (targetStatus === 'draft' ? 'Draft saved' : 'Schedule created'), 'success');
+            addLog(editingId ? 'Schedule updated (and split if needed)' : (targetStatus === 'draft' ? 'Draft saved' : 'Schedule created'), 'success');
             setView('list');
             setEditingId(null);
             setMessage('');
@@ -427,7 +461,17 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     const filteredGroups = groups
         .filter(g => g.subject?.toLowerCase().includes(groupSearch.toLowerCase()))
-        .sort((a, b) => groupSortSize ? (b.size || 0) - (a.size || 0) : (a.subject || '').localeCompare(b.subject || ''));
+        .sort((a, b) => {
+            if (groupSortKey === 'size') {
+                return groupSortOrder === 'asc'
+                    ? (a.size || 0) - (b.size || 0)
+                    : (b.size || 0) - (a.size || 0);
+            } else {
+                return groupSortOrder === 'asc'
+                    ? (a.subject || '').localeCompare(b.subject || '')
+                    : (b.subject || '').localeCompare(a.subject || '');
+            }
+        });
 
     return (
         <div className="max-w-6xl mx-auto space-y-6 p-6">
@@ -443,6 +487,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                     <button onClick={() => { setView('create'); setEditingId(null); setMessage(''); setRecurrenceRule(''); setSelectedGroupIds(new Set()); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Plus size={18} /> New Schedule
                     </button>
+                    <button onClick={() => { setView('workflow'); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'workflow' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                        <GitMerge size={18} /> Workflow
+                    </button>
                 </div>
             </div>
 
@@ -454,6 +501,14 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                         <button onClick={() => setListFilter('draft')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${listFilter === 'draft' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-400 hover:text-white'}`}>Drafts</button>
                         <button onClick={() => setListFilter('history')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${listFilter === 'history' ? 'bg-blue-500/10 text-blue-400' : 'text-slate-400 hover:text-white'}`}>History</button>
                         <div className="flex-1" />
+                        <button
+                            onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                            className="p-2 text-slate-400 hover:text-white transition flex items-center gap-2"
+                            title={sortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
+                        >
+                            <ArrowUpDown size={18} />
+                            <span className="text-xs font-medium">{sortOrder === 'asc' ? 'Oldest' : 'Newest'}</span>
+                        </button>
                         <button onClick={() => fetchSchedules()} className="p-2 text-slate-400 hover:text-white transition"><RefreshCw size={18} /></button>
                     </div>
 
@@ -544,6 +599,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                 </div>
             )}
 
+            {/* Workflow View */}
+            {view === 'workflow' && (
+                <WorkflowEditor config={config} onClose={() => setView('list')} />
+            )}
+
             {/* Create/Edit View */}
             {view === 'create' && (
                 <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 max-w-4xl mx-auto">
@@ -597,7 +657,31 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                         />
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <label className="text-xs text-slate-400">Min Size:</label>
+                                        <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (groupSortKey === 'subject') setGroupSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                                                    else { setGroupSortKey('subject'); setGroupSortOrder('asc'); }
+                                                }}
+                                                className={`px-2 py-1 rounded text-xs font-medium flex items-center gap-1 transition ${groupSortKey === 'subject' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-white'}`}
+                                            >
+                                                Name {groupSortKey === 'subject' && <ArrowUpDown size={10} className={groupSortOrder === 'asc' ? '' : 'rotate-180'} />}
+                                            </button>
+                                            <div className="w-px bg-slate-700 mx-1 my-1"></div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (groupSortKey === 'size') setGroupSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                                                    else { setGroupSortKey('size'); setGroupSortOrder('desc'); }
+                                                }}
+                                                className={`px-2 py-1 rounded text-xs font-medium flex items-center gap-1 transition ${groupSortKey === 'size' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-white'}`}
+                                            >
+                                                Size {groupSortKey === 'size' && <ArrowUpDown size={10} className={groupSortOrder === 'asc' ? 'rotate-180' : ''} />}
+                                            </button>
+                                        </div>
+
+                                        <label className="text-xs text-slate-400 ml-2">Min Size:</label>
                                         <input
                                             type="number"
                                             value={filterMinSize}

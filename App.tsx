@@ -13,6 +13,7 @@ import { EvoConfig } from './types';
 import { getConfig, saveConfig } from './services/configService';
 import { LogProvider } from './context/LogContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import '@xyflow/react/dist/style.css';
 
 const AppRoutes: React.FC = () => {
   const { user, loading: authLoading } = useAuth();
