@@ -194,6 +194,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                         instance: selectedInstance,
                         type: msgType,
                         payload: payload,
+                        text: chunk || `Message (${msgType})`, // Ensure text column is never null
                         enviar_em: sendAt,
                         status: 'pending',
                         group_filter: targetMode === 'groups' ? 'manual_selection' : null

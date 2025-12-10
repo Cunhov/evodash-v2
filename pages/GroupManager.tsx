@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Link as LinkIcon, LogOut, PlusCircle, LayoutGrid, List, Trash2, CheckSquare, Square } from 'lucide-react';
+import { Users, Search, Link as LinkIcon, LogOut, PlusCircle, LayoutGrid, List, Trash2, CheckSquare, Square, X } from 'lucide-react';
 import { EvoConfig, Group } from '../types';
 import { useLogs } from '../context/LogContext';
 import { getApiClient } from '../services/apiAdapter';
@@ -701,7 +701,7 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                                     <p className="text-slate-400 text-sm">Created {selectedGroup.creation ? new Date(selectedGroup.creation * 1000).toLocaleDateString() : 'Unknown'} • {selectedGroup.size} participants</p>
                                 </div>
                             </div>
-                            <button onClick={() => setSelectedGroup(null)} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><Trash2 size={24} className="rotate-45" /></button>
+                            <button onClick={() => setSelectedGroup(null)} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700"><X size={24} /></button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
