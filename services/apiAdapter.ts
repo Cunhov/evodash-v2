@@ -251,10 +251,10 @@ export const getApiClient = (config: EvoConfig) => {
 
     // 13. Atualizar Configurações do Grupo
     updateGroupSetting: async (instance: string, groupJid: string, action: 'announcement' | 'not_announcement' | 'locked' | 'unlocked') => {
-      const res = await fetch(getUrl(`/group/updateSetting/${instance}?groupJid=${groupJid}`), {
+      const res = await fetch(getUrl('/group/updateSetting', instance), {
         method: 'POST',
         headers,
-        body: JSON.stringify({ action })
+        body: JSON.stringify({ groupJid, action })
       });
       return res;
     },

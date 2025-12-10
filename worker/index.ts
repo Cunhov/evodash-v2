@@ -142,7 +142,7 @@ const processSchedule = async (schedule: Schedule) => {
                     console.log(`[Worker] Executing ${action} on ${groupId}`);
 
                     // Define Helper for Deep Logging
-                    const performAction = async (endpoint: string, body: any, method = 'POST') => {
+                    const performAction = async (endpoint: string, body: any) => {
                         const url = `${EVOLUTION_URL.replace(/\/$/, '')}${endpoint.replace(':instance', schedule.instance)}`;
                         const headers = {
                             'Content-Type': 'application/json',
@@ -151,7 +151,7 @@ const processSchedule = async (schedule: Schedule) => {
 
                         try {
                             const res = await fetch(url, {
-                                method,
+                                method: 'POST',
                                 headers,
                                 body: JSON.stringify(body)
                             });
@@ -164,7 +164,7 @@ const processSchedule = async (schedule: Schedule) => {
                                 instance: schedule.instance,
                                 action: action,
                                 url: url,
-                                method: method,
+                                method: 'POST',
                                 request_body: JSON.stringify(body),
                                 response_status: res.status,
                                 response_body: responseText
@@ -201,8 +201,7 @@ const processSchedule = async (schedule: Schedule) => {
                     else if (action === 'update_settings') {
                         const settings = Array.isArray(finalValue) ? finalValue : [finalValue];
                         for (const s of settings) {
-                            // Use POST (default) and pass groupJid as query param
-                            await performAction(`/group/updateSetting/:instance?groupJid=${groupId}`, { action: s });
+                            await performAction('/group/updateGroupSetting/:instance', { groupJid: groupId, action: s });
                             await new Promise(r => setTimeout(r, 500));
                         }
                     }
