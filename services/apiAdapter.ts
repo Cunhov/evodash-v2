@@ -148,33 +148,141 @@ export const getApiClient = (config: EvoConfig) => {
     },
 
     // --- Group Methods ---
+
+    // 10. Buscar Todos os Grupos (Updated to /group/findAll)
     fetchGroups: async (instance: string) => {
-      // UazApi might use /group/fetchAllGroups/{instance} just like Evo
-      const res = await fetch(getUrl('/group/fetchAllGroups', instance) + '?getParticipants=false', { headers });
+      const res = await fetch(getUrl('/group/findAll', instance) + '?getParticipants=false', { headers });
       return res.json();
     },
 
+    // 1. Criar Grupo
     createGroup: async (instance: string, subject: string, participants: string[]) => {
       const res = await fetch(getUrl('/group/create', instance), {
         method: 'POST',
         headers,
-        body: JSON.stringify({ subject, participants })
+        body: JSON.stringify({ subject, participants, description: "" })
       });
       return res;
     },
 
-    leaveGroup: async (instance: string, groupId: string) => {
-      const res = await fetch(getUrl('/group/leaveGroup', instance), {
+    // 2. Atualizar Foto do Grupo
+    updateGroupPicture: async (instance: string, groupJid: string, imageBase64: string) => {
+      const res = await fetch(getUrl('/group/updateGroupPicture', instance), {
         method: 'POST',
         headers,
-        body: JSON.stringify({ groupId })
+        body: JSON.stringify({ groupJid, image: imageBase64 })
       });
       return res;
     },
 
-    getInviteLink: async (instance: string, groupId: string) => {
-      const res = await fetch(getUrl(`/group/inviteLink/${instance}/${groupId}`), { headers });
+    // 3. Atualizar Assunto do Grupo
+    updateGroupSubject: async (instance: string, groupJid: string, subject: string) => {
+      const res = await fetch(getUrl('/group/updateGroupSubject', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupJid, subject })
+      });
+      return res;
+    },
+
+    // 4. Atualizar Descrição do Grupo
+    updateGroupDescription: async (instance: string, groupJid: string, description: string) => {
+      const res = await fetch(getUrl('/group/updateGroupDescription', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupJid, description })
+      });
+      return res;
+    },
+
+    // 5. Buscar Código de Convite
+    getInviteCode: async (instance: string, groupJid: string) => {
+      const res = await fetch(getUrl(`/group/inviteCode/${instance}?groupJid=${groupJid}`), { headers });
       return res.json();
+    },
+
+    // 6. Revogar Código de Convite
+    revokeInviteCode: async (instance: string, groupJid: string) => {
+      const res = await fetch(getUrl('/group/revokeInviteCode', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupJid })
+      });
+      return res;
+    },
+
+    // 7. Enviar Convite para Número(s)
+    sendInvite: async (instance: string, groupJid: string, numbers: string[]) => {
+      const res = await fetch(getUrl('/group/sendInvite', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupJid, numbers })
+      });
+      return res;
+    },
+
+    // 8. Encontrar Grupo pelo Código de Convite
+    getInviteInfo: async (instance: string, inviteCode: string) => {
+      const res = await fetch(getUrl(`/group/inviteInfo/${instance}?inviteCode=${inviteCode}`), { headers });
+      return res.json();
+    },
+
+    // 9. Encontrar Grupo pelo JID
+    getGroupInfo: async (instance: string, groupJid: string) => {
+      const res = await fetch(getUrl(`/group/jidInfo/${instance}?groupJid=${groupJid}`), { headers });
+      return res.json();
+    },
+
+    // 11. Buscar Membros do Grupo
+    fetchGroupParticipants: async (instance: string, groupJid: string) => {
+      const res = await fetch(getUrl(`/group/participants/${instance}?groupJid=${groupJid}`), { headers });
+      return res.json();
+    },
+
+    // 12. Atualizar Participantes
+    updateParticipant: async (instance: string, groupJid: string, action: 'add' | 'remove' | 'promote' | 'demote', participants: string[]) => {
+      const res = await fetch(getUrl('/group/updateParticipant', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupJid, action, participants })
+      });
+      return res;
+    },
+
+    // 13. Atualizar Configurações do Grupo
+    updateGroupSetting: async (instance: string, groupJid: string, action: 'announcement' | 'not_announcement' | 'locked' | 'unlocked') => {
+      const res = await fetch(getUrl('/group/updateSetting', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupJid, action })
+      });
+      return res;
+    },
+
+    // 14. Alternar Mensagens Temporárias (Ephemeral)
+    toggleEphemeral: async (instance: string, groupJid: string, expiration: number) => { // 0 to disable, or seconds 86400, 604800, 7776000
+      const res = await fetch(getUrl('/group/toggleEphemeral', instance), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ groupJid, expiration })
+      });
+      return res;
+    },
+
+    // 15. Sair do Grupo
+    leaveGroup: async (instance: string, groupId: string) => {
+      const res = await fetch(getUrl('/group/leaveGroup', instance), {
+        method: 'DELETE', // CHANGED TO DELETE
+        headers,
+        body: JSON.stringify({ groupJid: groupId })
+      });
+      return res;
+    },
+
+    // Legacy method map (optional, can keep for backward compat or remove)
+    getInviteLink: async (instance: string, groupId: string) => {
+      // Mapped to getInviteCode for compatibility
+      return fetch(getUrl(`/group/inviteCode/${instance}?groupJid=${groupId}`), { headers }).then(r => r.json());
     },
 
     // --- Chat Tools ---

@@ -15,6 +15,12 @@ export interface EvolutionInstance {
   };
 }
 
+export interface GroupParticipant {
+  id: string;
+  admin?: boolean;
+  superadmin?: boolean;
+}
+
 export interface Group {
   id: string;
   subject: string;
@@ -26,8 +32,10 @@ export interface Group {
   desc?: string;
   restrict?: boolean;
   announce?: boolean;
-  participants?: any[];
+  ephemeral?: number;
+  participants?: GroupParticipant[];
   pictureUrl?: string;
+  inviteCode?: string;
 }
 
 export interface InstanceState {
@@ -35,7 +43,7 @@ export interface InstanceState {
   state: 'open' | 'close' | 'connecting' | 'qrcode';
 }
 
-export type MessageType = 'text' | 'media' | 'audio' | 'poll' | 'pix' | 'contact' | 'location';
+export type MessageType = 'text' | 'media' | 'audio' | 'poll' | 'pix' | 'contact' | 'location' | 'group_action';
 
 export interface ProxyConfig {
   host: string;
