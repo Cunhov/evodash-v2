@@ -139,17 +139,74 @@ const processSchedule = async (schedule: Schedule) => {
             for (const groupId of groupIds) {
                 try {
                     console.log(`[Worker] Executing ${action} on ${groupId}`);
-                    if (action === 'update_subject') await api.updateGroupSubject(schedule.instance, groupId, finalValue);
-                    else if (action === 'update_description') await api.updateGroupDescription(schedule.instance, groupId, finalValue);
+
+                    // Define Helper for Deep Logging
+                    const performAction = async (endpoint: string, body: any) => {
+                        const url = `${EVOLUTION_URL.replace(/\/$/, '')}${endpoint.replace(':instance', schedule.instance)}`;
+                        const headers = {
+                            'Content-Type': 'application/json',
+                            'apikey': schedule.api_key || ''
+                        };
+
+                        try {
+                            const res = await fetch(url, {
+                                method: 'POST',
+                                headers,
+                                body: JSON.stringify(body)
+                            });
+
+                            const responseText = await res.text();
+
+                            // Log to Supabase for analysis
+                            await supabase.from('api_debug_logs').insert({
+                                schedule_id: schedule.id,
+                                instance: schedule.instance,
+                                action: action,
+                                url: url,
+                                method: 'POST',
+                                request_body: JSON.stringify(body),
+                                response_status: res.status,
+                                response_body: responseText
+                            });
+
+                            if (!res.ok) {
+                                throw new Error(`API Error ${res.status}: ${responseText}`);
+                            }
+                        } catch (err: any) {
+                            // Log network/fetch errors too if not already handled
+                            if (!err.message.includes('API Error')) {
+                                await supabase.from('api_debug_logs').insert({
+                                    schedule_id: schedule.id,
+                                    instance: schedule.instance,
+                                    action: action,
+                                    url: url,
+                                    method: 'POST',
+                                    request_body: JSON.stringify(body),
+                                    response_status: 0,
+                                    response_body: `Network Error: ${err.message}`
+                                });
+                            }
+                            throw err;
+                        }
+                    };
+
+                    // Execute based on action
+                    if (action === 'update_subject') {
+                        await performAction('/group/updateGroupSubject/:instance', { groupJid: groupId, subject: finalValue });
+                    }
+                    else if (action === 'update_description') {
+                        await performAction('/group/updateGroupDescription/:instance', { groupJid: groupId, description: finalValue });
+                    }
                     else if (action === 'update_settings') {
                         const settings = Array.isArray(finalValue) ? finalValue : [finalValue];
                         for (const s of settings) {
-                            await api.updateGroupSetting(schedule.instance, groupId, s);
-                            // Small delay to ensure order and avoid rate limits
+                            await performAction('/group/updateGroupSetting/:instance', { groupJid: groupId, action: s });
                             await new Promise(r => setTimeout(r, 500));
                         }
                     }
-                    else if (action === 'update_picture') await api.updateGroupPicture(schedule.instance, groupId, finalValue);
+                    else if (action === 'update_picture') {
+                        await performAction('/group/updateGroupPicture/:instance', { groupJid: groupId, image: finalValue });
+                    }
 
                     successCount++;
                     await new Promise(r => setTimeout(r, CONFIG.rateLimit));
