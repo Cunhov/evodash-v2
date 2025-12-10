@@ -146,7 +146,8 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                     value: payloadValue,
                     groupIds: targetGroups.map(g => g.id)
                 },
-                text: `Bulk Group Action: ${bulkAction}`
+                text: `Bulk Group Action: ${bulkAction}`,
+                api_key: config.apiKey
             });
 
             if (error) addLog('Failed to schedule action', 'error');
@@ -300,7 +301,8 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                     value: value,
                     groupIds: [selectedGroup.id]
                 },
-                text: `Scheduled Group Action: ${action}`
+                text: `Scheduled Group Action: ${action}`,
+                api_key: config.apiKey
             });
 
             if (error) throw error;
