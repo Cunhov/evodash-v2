@@ -7,6 +7,7 @@ import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
 import { generateMarketingMessage } from '../services/geminiService';
 import { MediaUploader } from '../components/MediaUploader';
+import * as uuid from 'uuid';
 
 interface SchedulerProps {
     config: EvoConfig;
@@ -21,6 +22,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [listFilter, setListFilter] = useState<'pending' | 'history' | 'draft'>('pending');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [editingId, setEditingId] = useState<number | null>(null);
+    const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
 
     // Pagination
     const [page, setPage] = useState(0);
@@ -229,8 +231,16 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     const handleEdit = (schedule: Schedule) => {
         setEditingId(schedule.id || null);
+
+        if (schedule.payload?.batchId) {
+            setEditingBatchId(schedule.payload.batchId);
+            setMessage(schedule.payload.masterText || schedule.text);
+        } else {
+            setEditingBatchId(null);
+            setMessage(schedule.text);
+        }
+
         setSelectedInstance(schedule.instance);
-        setMessage(schedule.text);
 
         const dateObj = new Date(schedule.enviar_em);
         setScheduleDate(dateObj.toISOString().split('T')[0]);
@@ -315,6 +325,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             if (chunks.length === 0) chunks = [message];
         }
 
+        const batchId = chunks.length > 1 ? uuid.v4() : undefined;
+        const masterText = message;
+
         const apiKey = config.apiKey;
         let mediaUrl = '';
 
@@ -340,7 +353,12 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             // Add delay for subsequent chunks to ensure order
             const chunkDateTime = new Date(baseDateTime.getTime() + (i * 2000));
 
-            let payload: any = {};
+            let payload: any = {
+                batchId,
+                masterText: batchId ? masterText : undefined,
+                chunkIndex: i,
+                totalChunks: chunks.length
+            };
 
             if (msgType === 'text') {
                 // For text splitting, the payload/text is just the chunk
@@ -404,9 +422,20 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             };
 
             let error;
-            // logic: If we are editing, update the FIRST chunk into the existing ID.
+            // logic: If we are editing, update the FIRST chunk into the existing ID if it's a single edit.
+            // If we are editing a BATCH, we delete the old batch and insert new.
             // All subsequent chunks (or if we are not editing) get INSERTed.
-            if (editingId && i === 0) {
+
+            if (editingBatchId && i === 0) {
+                // If editing a batch, we deleted previous items in handleSave preparation or we delete now?
+                // Better to delete ONCE before loop. Let's adjust logic.
+                // Actually, let's delete here if it's the first iteration.
+                const { error: delError } = await supabase.from('schedules').delete().eq('payload->>batchId', editingBatchId);
+                if (delError) console.error('Error deleting old batch', delError);
+
+                const { error: insertError } = await supabase.from('schedules').insert(dbPayload);
+                error = insertError;
+            } else if (editingId && !editingBatchId && i === 0) {
                 const { error: updateError } = await supabase
                     .from('schedules')
                     .update(dbPayload)
@@ -434,15 +463,25 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             addLog(editingId ? 'Schedule updated (and split if needed)' : (targetStatus === 'draft' ? 'Draft saved' : 'Schedule created'), 'success');
             setView('list');
             setEditingId(null);
+            setEditingBatchId(null);
             setMessage('');
             setRecurrenceRule('');
             setSelectedGroupIds(new Set());
         }
     };
 
-    const handleDelete = async (id: number) => {
+    const handleDelete = async (schedule: Schedule) => {
         if (!confirm('Are you sure you want to delete this schedule?')) return;
-        const { error } = await supabase.from('schedules').delete().eq('id', id);
+
+        let error;
+        if (schedule.payload?.batchId) {
+            const { error: delError } = await supabase.from('schedules').delete().eq('payload->>batchId', schedule.payload.batchId);
+            error = delError;
+        } else {
+            const { error: delError } = await supabase.from('schedules').delete().eq('id', schedule.id);
+            error = delError;
+        }
+
         if (error) addLog(`Failed to delete: ${error.message}`, 'error');
         else fetchSchedules();
     };
@@ -472,6 +511,26 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                     : (b.subject || '').localeCompare(a.subject || '');
             }
         });
+
+    const groupedSchedules = React.useMemo(() => {
+        const result: any[] = [];
+        const processedBatches = new Set<string>();
+
+        schedules.forEach(s => {
+            const bid = s.payload?.batchId;
+            if (bid) {
+                if (!processedBatches.has(bid)) {
+                    const count = schedules.filter(i => i.payload?.batchId === bid).length;
+                    const masterText = s.payload?.masterText || s.text;
+                    result.push({ ...s, text: masterText, isBatch: true, batchCount: count });
+                    processedBatches.add(bid);
+                }
+            } else {
+                result.push(s);
+            }
+        });
+        return result;
+    }, [schedules]);
 
     return (
         <div className="max-w-6xl mx-auto space-y-6 p-6">
@@ -524,16 +583,23 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700/50">
-                                {schedules.length === 0 ? (
+                                {groupedSchedules.length === 0 ? (
                                     <tr>
                                         <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
                                             No {listFilter} schedules found.
                                         </td>
                                     </tr>
                                 ) : (
-                                    schedules.map((schedule) => (
+                                    groupedSchedules.map((schedule) => (
                                         <tr key={schedule.id} className="hover:bg-slate-700/20 transition">
-                                            <td className="px-6 py-4 font-medium text-white truncate max-w-[200px]">{schedule.text || `[${schedule.type}]`}</td>
+                                            <td className="px-6 py-4 font-medium text-white truncate max-w-[200px]">
+                                                {schedule.text || `[${schedule.type}]`}
+                                                {schedule.isBatch && (
+                                                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                                        x{schedule.batchCount} split
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4">{schedule.instance}</td>
                                             <td className="px-6 py-4">
                                                 <div className="flex flex-col">
@@ -565,7 +631,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                                             <button onClick={() => handleEdit(schedule)} className="p-2 text-slate-400 hover:text-emerald-400 transition" title="Edit">
                                                                 <FileText size={16} />
                                                             </button>
-                                                            <button onClick={() => handleDelete(schedule.id!)} className="p-2 text-slate-400 hover:text-red-400 transition" title="Delete">
+                                                            <button onClick={() => handleDelete(schedule)} className="p-2 text-slate-400 hover:text-red-400 transition" title="Delete">
                                                                 <Trash2 size={16} />
                                                             </button>
                                                         </>

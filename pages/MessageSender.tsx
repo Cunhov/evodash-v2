@@ -68,8 +68,8 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                     const valid = data.filter((d: any) => !!getInstanceName(d));
                     setInstances(valid);
                     if (valid.length > 0) {
-                        const first = getInstanceName(valid[0]);
-                        if (first) setSelectedInstance(first);
+                        // const first = getInstanceName(valid[0]);
+                        // if (first) setSelectedInstance(first);
                     }
                     addLog(`Loaded ${valid.length} instances`, 'success');
                 } else {
@@ -79,22 +79,27 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
     }, [config]);
 
     useEffect(() => {
-        if (targetMode === 'groups' && selectedInstance) {
-            addLog(`Fetching groups for ${selectedInstance}...`, 'info');
-            api.fetchGroups(selectedInstance)
-                .then((data: any) => {
-                    if (Array.isArray(data)) {
-                        setGroups(data);
-                        addLog(`Loaded ${data.length} groups`, 'success');
-                    } else {
+        if (targetMode === 'groups') {
+            setGroups([]);
+            setSelectedGroupIds(new Set()); // Reset selection
+
+            if (selectedInstance) {
+                addLog(`Fetching groups for ${selectedInstance}...`, 'info');
+                api.fetchGroups(selectedInstance)
+                    .then((data: any) => {
+                        if (Array.isArray(data)) {
+                            setGroups(data);
+                            addLog(`Loaded ${data.length} groups`, 'success');
+                        } else {
+                            setGroups([]);
+                            addLog('Failed to load groups (invalid response)', 'warning', data);
+                        }
+                    })
+                    .catch((e: any) => {
                         setGroups([]);
-                        addLog('Failed to load groups (invalid response)', 'warning', data);
-                    }
-                })
-                .catch((e: any) => {
-                    setGroups([]);
-                    addLog(`Error fetching groups: ${e.message}`, 'error');
-                });
+                        addLog(`Error fetching groups: ${e.message}`, 'error');
+                    });
+            }
         }
     }, [targetMode, selectedInstance, config]);
 
@@ -256,6 +261,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                             <div>
                                 <label className="text-xs uppercase font-bold text-slate-500 mb-1 block">From Instance</label>
                                 <select value={selectedInstance} onChange={(e) => setSelectedInstance(e.target.value)} disabled={config.mode === 'instance'} className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-4 py-3 disabled:opacity-50">
+                                    <option value="">Select instance</option>
                                     {instances.map((i, idx) => {
                                         const name = getInstanceName(i);
                                         return name ? <option key={idx} value={name}>{name}</option> : null;

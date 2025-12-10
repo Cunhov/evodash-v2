@@ -70,6 +70,13 @@ export interface AudioMessagePayload {
   delay: number;
 }
 
+export interface BatchPayload {
+  batchId?: string;
+  masterText?: string;
+  chunkIndex?: number;
+  totalChunks?: number;
+}
+
 // App Configuration Types
 
 export interface Contact {
