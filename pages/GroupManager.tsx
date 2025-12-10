@@ -48,7 +48,16 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
     const [bulkAction, setBulkAction] = useState<'subject' | 'description' | 'picture' | 'settings'>('subject');
     const [bulkValue, setBulkValue] = useState('');
     const [bulkFile, setBulkFile] = useState<File | null>(null);
-    const [bulkSettingsAction, setBulkSettingsAction] = useState<'locked' | 'unlocked' | 'announcement' | 'not_announcement'>('locked');
+    const [bulkSettingsActions, setBulkSettingsActions] = useState<Set<string>>(new Set());
+
+    const toggleBulkSetting = (setting: string) => {
+        setBulkSettingsActions(prev => {
+            const next = new Set(prev);
+            if (next.has(setting)) next.delete(setting);
+            else next.add(setting);
+            return next;
+        });
+    };
     const [isScheduled, setIsScheduled] = useState(false);
     const [scheduleDate, setScheduleDate] = useState('');
     const [scheduleTime, setScheduleTime] = useState('');
@@ -59,15 +68,20 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
     const [activeTab, setActiveTab] = useState<'groups' | 'schedules'>('groups');
     const [groupSchedules, setGroupSchedules] = useState<any[]>([]);
 
+    // Individual Scheduling State
+    const [groupScheduleMode, setGroupScheduleMode] = useState(false);
+    const [groupScheduleDate, setGroupScheduleDate] = useState('');
+    const [groupScheduleTime, setGroupScheduleTime] = useState('');
+
     useEffect(() => {
         if (activeTab === 'schedules') fetchSchedules();
     }, [activeTab, selectedInstance]);
 
     const fetchSchedules = async () => {
-        if (!selectedInstance) return;
+        if (activeTab !== 'schedules' || !selectedInstance) return;
         const { data, error } = await supabase
             .from('schedules')
-            .select('*')
+            .select('*, error_message')
             .eq('instance', selectedInstance)
             .eq('type', 'group_action')
             .order('enviar_em', { ascending: false });
@@ -76,12 +90,12 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
         else setGroupSchedules(data || []);
     };
 
-    const deleteSchedule = async (id: number) => {
-        if (!confirm('Are you sure you want to cancel this operation?')) return;
+    const deleteSchedule = async (id: string) => {
+        if (!confirm('Are you sure you want to delete this schedule?')) return;
         const { error } = await supabase.from('schedules').delete().eq('id', id);
         if (error) addLog('Failed to delete schedule', 'error');
         else {
-            addLog('Schedule cancelled', 'success');
+            addLog('Schedule deleted', 'success');
             fetchSchedules();
         }
     };
@@ -91,7 +105,11 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
         let payloadValue: any = bulkValue;
 
         if (bulkAction === 'settings') {
-            payloadValue = bulkSettingsAction;
+            payloadValue = Array.from(bulkSettingsActions);
+            if (payloadValue.length === 0) {
+                addLog('Select at least one setting', 'error');
+                return;
+            }
         }
 
         if (bulkAction === 'picture' && bulkFile) {
@@ -150,7 +168,14 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                 try {
                     if (bulkAction === 'subject') await api.updateGroupSubject(selectedInstance, group.id, payloadValue);
                     if (bulkAction === 'description') await api.updateGroupDescription(selectedInstance, group.id, payloadValue);
-                    if (bulkAction === 'settings') await api.updateGroupSetting(selectedInstance, group.id, payloadValue);
+                    if (bulkAction === 'settings') {
+                        const settings = Array.isArray(payloadValue) ? payloadValue : [payloadValue];
+                        for (const s of settings) {
+                            await api.updateGroupSetting(selectedInstance, group.id, s);
+                            // Small delay between settings
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    }
                     if (bulkAction === 'picture') {
                         // Fetch the image back as blob to convert to base64 for the current API adapter.
                         const imgRes = await fetch(payloadValue);
@@ -257,12 +282,43 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     // --- Details & Settings ---
 
+    const scheduleIndividualAction = async (action: string, value: any) => {
+        if (!selectedGroup) return;
+        if (!groupScheduleDate || !groupScheduleTime) {
+            addLog('Please select Date & Time for scheduling', 'error');
+            return;
+        }
+        try {
+            const scheduledDate = new Date(`${groupScheduleDate}T${groupScheduleTime}`);
+            const { error } = await supabase.from('schedules').insert({
+                instance: selectedInstance,
+                type: 'group_action',
+                status: 'pending',
+                enviar_em: scheduledDate.toISOString(),
+                payload: {
+                    action: action,
+                    value: value,
+                    groupIds: [selectedGroup.id]
+                },
+                text: `Scheduled Group Action: ${action}`
+            });
+
+            if (error) throw error;
+            addLog('Action scheduled successfully', 'success');
+        } catch (e: any) {
+            addLog(`Failed to schedule action: ${e.message}`, 'error');
+        }
+    };
+
     const openGroupDetails = async (group: Group) => {
         setSelectedGroup(group);
         setDetailsLoading(true);
         setInviteInfo(null);
         setEditingSubject(false);
         setEditingDesc(false);
+        setGroupScheduleMode(false); // Reset mode
+        setGroupScheduleDate('');
+        setGroupScheduleTime('');
 
         try {
             // Fetch full info including participants
@@ -287,6 +343,11 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     const updateSubject = async () => {
         if (!selectedGroup) return;
+        if (groupScheduleMode) {
+            await scheduleIndividualAction('update_subject', tempSubject);
+            setEditingSubject(false);
+            return;
+        }
         try {
             await api.updateGroupSubject(selectedInstance, selectedGroup.id, tempSubject);
             addLog('Subject updated', 'success');
@@ -300,6 +361,11 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     const updateDescription = async () => {
         if (!selectedGroup) return;
+        if (groupScheduleMode) {
+            await scheduleIndividualAction('update_description', tempDesc);
+            setEditingDesc(false);
+            return;
+        }
         try {
             await api.updateGroupDescription(selectedInstance, selectedGroup.id, tempDesc);
             addLog('Description updated', 'success');
@@ -339,6 +405,10 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     const updateSetting = async (action: 'announcement' | 'not_announcement' | 'locked' | 'unlocked') => {
         if (!selectedGroup) return;
+        if (groupScheduleMode) {
+            await scheduleIndividualAction('update_settings', [action]); // Use array for consistency
+            return;
+        }
         try {
             await api.updateGroupSetting(selectedInstance, selectedGroup.id, action);
             addLog(`Setting updated: ${action}`, 'success');
@@ -624,11 +694,18 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                                             <td className="p-4">
                                                 {s.status === 'pending' && <span className="text-amber-400 flex items-center gap-1"><Clock size={14} /> Pending</span>}
                                                 {s.status === 'sent' && <span className="text-emerald-400 flex items-center gap-1"><CheckSquare size={14} /> Completed</span>}
-                                                {s.status === 'failed' && <span className="text-rose-400 flex items-center gap-1"><AlertTriangle size={14} /> Failed</span>}
+                                                {s.status === 'failed' && (
+                                                    <button
+                                                        onClick={() => alert(`Error: ${s.error_message || 'Unknown error'}`)}
+                                                        className="text-rose-400 flex items-center gap-1 hover:underline text-left"
+                                                    >
+                                                        <AlertTriangle size={14} /> Failed
+                                                    </button>
+                                                )}
                                             </td>
                                             <td className="p-4 text-right">
-                                                {s.status === 'pending' && (
-                                                    <button onClick={() => deleteSchedule(s.id)} className="text-rose-400 hover:text-rose-300 p-2 hover:bg-slate-700 rounded-full transition">
+                                                {(s.status === 'pending' || s.status === 'failed') && (
+                                                    <button onClick={() => deleteSchedule(s.id)} className="text-slate-400 hover:text-rose-400 p-2 hover:bg-slate-700 rounded-full transition" title="Delete Schedule">
                                                         <Trash2 size={16} />
                                                     </button>
                                                 )}
@@ -702,28 +779,29 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
                                         {bulkAction === 'settings' && (
                                             <div className="space-y-4">
+                                                <div className="text-xs text-slate-500 mb-2">Select settings to apply:</div>
                                                 <div>
                                                     <label className="flex items-center gap-3 text-slate-300 cursor-pointer">
-                                                        <input type="radio" name="setting" checked={bulkSettingsAction === 'locked'} onChange={() => setBulkSettingsAction('locked')} className="text-emerald-500 bg-slate-800 border-slate-600" />
+                                                        <input type="checkbox" checked={bulkSettingsActions.has('locked')} onChange={() => toggleBulkSetting('locked')} className="rounded border-slate-600 bg-slate-900 text-emerald-500" />
                                                         <span>Lock Settings (Admins Only)</span>
                                                     </label>
                                                 </div>
                                                 <div>
                                                     <label className="flex items-center gap-3 text-slate-300 cursor-pointer">
-                                                        <input type="radio" name="setting" checked={bulkSettingsAction === 'unlocked'} onChange={() => setBulkSettingsAction('unlocked')} className="text-emerald-500 bg-slate-800 border-slate-600" />
+                                                        <input type="checkbox" checked={bulkSettingsActions.has('unlocked')} onChange={() => toggleBulkSetting('unlocked')} className="rounded border-slate-600 bg-slate-900 text-emerald-500" />
                                                         <span>Unlock Settings (Everyone)</span>
                                                     </label>
                                                 </div>
                                                 <div className="h-px bg-slate-700 my-2"></div>
                                                 <div>
                                                     <label className="flex items-center gap-3 text-slate-300 cursor-pointer">
-                                                        <input type="radio" name="setting" checked={bulkSettingsAction === 'announcement'} onChange={() => setBulkSettingsAction('announcement')} className="text-emerald-500 bg-slate-800 border-slate-600" />
+                                                        <input type="checkbox" checked={bulkSettingsActions.has('announcement')} onChange={() => toggleBulkSetting('announcement')} className="rounded border-slate-600 bg-slate-900 text-emerald-500" />
                                                         <span>Announcements Only</span>
                                                     </label>
                                                 </div>
                                                 <div>
                                                     <label className="flex items-center gap-3 text-slate-300 cursor-pointer">
-                                                        <input type="radio" name="setting" checked={bulkSettingsAction === 'not_announcement'} onChange={() => setBulkSettingsAction('not_announcement')} className="text-emerald-500 bg-slate-800 border-slate-600" />
+                                                        <input type="checkbox" checked={bulkSettingsActions.has('not_announcement')} onChange={() => toggleBulkSetting('not_announcement')} className="rounded border-slate-600 bg-slate-900 text-emerald-500" />
                                                         <span>Allow All Participants</span>
                                                     </label>
                                                 </div>
@@ -802,18 +880,40 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                                     <div className="relative group">
                                         {selectedGroup.pictureUrl ? <img src={selectedGroup.pictureUrl} className="w-16 h-16 rounded-full object-cover border-2 border-slate-700" /> : <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 border-2 border-slate-700"><Users size={32} /></div>}
                                     </div>
-                                    <div>
-                                        {editingSubject ? (
-                                            <div className="flex gap-2 items-center">
-                                                <input autoFocus type="text" value={tempSubject} onChange={e => setTempSubject(e.target.value)} className="bg-slate-950 border border-slate-700 text-white px-2 py-1 rounded font-bold text-xl w-64" />
-                                                <button onClick={updateSubject} className="text-emerald-400 hover:text-emerald-300 p-1"><CheckSquare size={20} /></button>
-                                                <button onClick={() => setEditingSubject(false)} className="text-slate-400 hover:text-white p-1"><Trash2 size={20} className="rotate-45" /></button>
+                                    <div className="flex-1">
+                                        {/* Header Title with Schedule Mode Indicator */}
+                                        <div className="flex items-center gap-4">
+                                            {editingSubject ? (
+                                                <div className="flex gap-2 items-center">
+                                                    <input autoFocus type="text" value={tempSubject} onChange={e => setTempSubject(e.target.value)} className="bg-slate-950 border border-slate-700 text-white px-2 py-1 rounded font-bold text-xl w-64" />
+                                                    <button onClick={updateSubject} className="text-emerald-400 hover:text-emerald-300 p-1"><CheckSquare size={20} /></button>
+                                                    <button onClick={() => setEditingSubject(false)} className="text-slate-400 hover:text-white p-1"><Trash2 size={20} className="rotate-45" /></button>
+                                                </div>
+                                            ) : (
+                                                <h2 onClick={() => { setTempSubject(selectedGroup.subject); setEditingSubject(true); }} className="text-2xl font-bold text-white cursor-pointer hover:text-emerald-400 transition flex items-center gap-2">
+                                                    {selectedGroup.subject}
+                                                </h2>
+                                            )}
+
+                                            {/* Schedule Toggle in Header */}
+                                            <div className="ml-auto flex items-center gap-3 bg-slate-800 p-2 rounded-lg border border-slate-700">
+                                                <label className="flex items-center gap-2 text-xs font-medium text-slate-300 cursor-pointer">
+                                                    <div className={`w-8 h-4 rounded-full transition relative ${groupScheduleMode ? 'bg-emerald-500' : 'bg-slate-600'}`}>
+                                                        <input type="checkbox" className="hidden" checked={groupScheduleMode} onChange={e => setGroupScheduleMode(e.target.checked)} />
+                                                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${groupScheduleMode ? 'left-4.5 translate-x-3.5' : 'left-0.5'}`}></div>
+                                                    </div>
+                                                    {groupScheduleMode ? 'Scheduling ON' : 'Scheduling OFF'}
+                                                </label>
+
+                                                {groupScheduleMode && (
+                                                    <div className="flex gap-2 animate-in fade-in slide-in-from-right-4">
+                                                        <input type="date" value={groupScheduleDate} onChange={e => setGroupScheduleDate(e.target.value)} className="bg-slate-900 border border-slate-700 text-white text-xs rounded px-2 py-1" />
+                                                        <input type="time" value={groupScheduleTime} onChange={e => setGroupScheduleTime(e.target.value)} className="bg-slate-900 border border-slate-700 text-white text-xs rounded px-2 py-1" />
+                                                    </div>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <h2 onClick={() => { setTempSubject(selectedGroup.subject); setEditingSubject(true); }} className="text-2xl font-bold text-white cursor-pointer hover:text-emerald-400 transition flex items-center gap-2">
-                                                {selectedGroup.subject}
-                                            </h2>
-                                        )}
+                                        </div>
+
                                         <p className="text-slate-400 text-sm">Created {selectedGroup.creation ? new Date(selectedGroup.creation * 1000).toLocaleDateString() : 'Unknown'} • {selectedGroup.size} participants</p>
                                     </div>
                                 </div>

@@ -141,7 +141,14 @@ const processSchedule = async (schedule: Schedule) => {
                     console.log(`[Worker] Executing ${action} on ${groupId}`);
                     if (action === 'update_subject') await api.updateGroupSubject(schedule.instance, groupId, finalValue);
                     else if (action === 'update_description') await api.updateGroupDescription(schedule.instance, groupId, finalValue);
-                    else if (action === 'update_settings') await api.updateGroupSetting(schedule.instance, groupId, finalValue); // value is 'locked' etc.
+                    else if (action === 'update_settings') {
+                        const settings = Array.isArray(finalValue) ? finalValue : [finalValue];
+                        for (const s of settings) {
+                            await api.updateGroupSetting(schedule.instance, groupId, s);
+                            // Small delay to ensure order and avoid rate limits
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                    }
                     else if (action === 'update_picture') await api.updateGroupPicture(schedule.instance, groupId, finalValue);
 
                     successCount++;
