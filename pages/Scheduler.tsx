@@ -500,6 +500,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     const filteredGroups = groups
         .filter(g => g.subject?.toLowerCase().includes(groupSearch.toLowerCase()))
+        .filter(g => (g.size || 0) >= filterMinSize)
         .sort((a, b) => {
             if (groupSortKey === 'size') {
                 return groupSortOrder === 'asc'
@@ -760,9 +761,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                 <div className="h-64 overflow-y-auto space-y-1 pr-2 custom-scrollbar">
                                     {loading ? (
                                         <div className="text-center py-8 text-slate-500">Loading groups...</div>
-                                    ) : groups
-                                        .filter(g => !groupSearch || g.subject.toLowerCase().includes(groupSearch.toLowerCase()))
-                                        .filter(g => (g.size || 0) >= filterMinSize)
+                                    ) : filteredGroups
                                         .map(group => (
                                             <div
                                                 key={group.id}
