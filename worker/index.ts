@@ -109,6 +109,64 @@ const processSchedule = async (schedule: Schedule) => {
         };
         const api = getApiClient(config);
 
+        if (schedule.type === 'group_action') {
+            console.log(`[Worker] Processing Group Action: ${schedule.payload?.action}`);
+            const { action, value, groupIds } = schedule.payload || {};
+
+            if (!groupIds || !Array.isArray(groupIds) || groupIds.length === 0) {
+                throw new Error('No target groups specified in payload');
+            }
+
+            // Prepare value (e.g., download image if picture update)
+            let finalValue = value;
+            if (action === 'update_picture' && value && value.startsWith('http')) {
+                try {
+                    console.log(`[Worker] Downloading image for group picture...`);
+                    const imgRes = await fetch(value);
+                    if (!imgRes.ok) throw new Error('Failed to download image');
+                    const arrayBuffer = await imgRes.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    finalValue = buffer.toString('base64'); // API expects base64
+                } catch (e) {
+                    console.error('[Worker] Failed to prepare image:', e);
+                    throw e;
+                }
+            }
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const groupId of groupIds) {
+                try {
+                    console.log(`[Worker] Executing ${action} on ${groupId}`);
+                    if (action === 'update_subject') await api.updateGroupSubject(schedule.instance, groupId, finalValue);
+                    else if (action === 'update_description') await api.updateGroupDescription(schedule.instance, groupId, finalValue);
+                    else if (action === 'update_settings') await api.updateGroupSetting(schedule.instance, groupId, finalValue); // value is 'locked' etc.
+                    else if (action === 'update_picture') await api.updateGroupPicture(schedule.instance, groupId, finalValue);
+
+                    successCount++;
+                    await new Promise(r => setTimeout(r, CONFIG.rateLimit));
+                } catch (e: any) {
+                    console.error(`[Worker] Action failed for ${groupId}:`, e);
+                    failCount++;
+                    await supabase.from('schedule_failures').insert({
+                        schedule_id: schedule.id,
+                        group_id: groupId,
+                        error_message: e.message || 'Action Failed'
+                    });
+                }
+            }
+
+            // Update Status
+            await supabase.from('schedules').update({
+                status: 'sent',
+                enviado_em: new Date().toISOString(),
+                error_message: `Action: ${successCount}, Failed: ${failCount}`
+            }).eq('id', schedule.id);
+
+            return; // Exit function after handling group action
+        }
+
         // 3. Fetch Groups
         console.log(`Fetching groups for instance ${schedule.instance}...`);
         const groups = await api.fetchGroups(schedule.instance);
