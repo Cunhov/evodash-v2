@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { supabase } from '../services/supabaseClient';
 import { getApiClient } from '../services/apiAdapter';
 import { EvoConfig, Schedule } from '../types';
@@ -110,7 +111,7 @@ const processSchedule = async (schedule: Schedule) => {
         const api = getApiClient(config);
 
         if (schedule.type === 'group_action') {
-            console.log(`[Worker] Processing Group Action: ${schedule.payload?.action}`);
+            console.log(`[Worker v2] Processing Group Action: ${schedule.payload?.action}`);
             const { action, value, groupIds } = schedule.payload || {};
 
             if (!groupIds || !Array.isArray(groupIds) || groupIds.length === 0) {
