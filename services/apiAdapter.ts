@@ -151,7 +151,7 @@ export const getApiClient = (config: EvoConfig) => {
 
     // 10. Buscar Todos os Grupos (Updated to /group/findAll)
     fetchGroups: async (instance: string) => {
-      const res = await fetch(getUrl('/group/findAll', instance) + '?getParticipants=false', { headers });
+      const res = await fetch(getUrl('/group/fetchAllGroups', instance) + '?getParticipants=false', { headers });
       return res.json();
     },
 
