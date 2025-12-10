@@ -201,8 +201,8 @@ const processSchedule = async (schedule: Schedule) => {
                     else if (action === 'update_settings') {
                         const settings = Array.isArray(finalValue) ? finalValue : [finalValue];
                         for (const s of settings) {
-                            // Use PUT and correct endpoint /group/updateSetting
-                            await performAction('/group/updateSetting/:instance', { groupJid: groupId, action: s }, 'PUT');
+                            // Use POST (default) and pass groupJid as query param
+                            await performAction(`/group/updateSetting/:instance?groupJid=${groupId}`, { action: s });
                             await new Promise(r => setTimeout(r, 500));
                         }
                     }
