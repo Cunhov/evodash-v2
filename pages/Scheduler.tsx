@@ -147,18 +147,32 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     // Fetch Groups when Instance Changes
     useEffect(() => {
+        let isActive = true;
+
         if (selectedInstance) {
             setLoading(true);
+
+            // Clear previous groups immediately to avoid confusion while loading
+            setGroups([]);
+
             api.fetchGroups(selectedInstance)
                 .then((data: any) => {
+                    if (!isActive) return;
+
                     if (Array.isArray(data)) {
                         setGroups(data);
                     } else {
                         setGroups([]);
                     }
                 })
-                .finally(() => setLoading(false));
+                .finally(() => {
+                    if (isActive) setLoading(false);
+                });
         }
+
+        return () => {
+            isActive = false;
+        };
     }, [selectedInstance]);
 
     // Fetch Schedules
@@ -286,6 +300,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const handleDuplicate = (schedule: Schedule) => {
         handleEdit(schedule);
         setEditingId(null); // Clear ID to ensure it creates a new entry
+        setEditingBatchId(null); // Clear Batch ID to ensure it doesn't replace the original batch
         addLog('Schedule duplicated. You can now edit and save it.', 'info');
     };
 
