@@ -26,7 +26,8 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     // Pagination
     const [page, setPage] = useState(0);
-    const PAGE_SIZE = 20;
+    const [page, setPage] = useState(0);
+    const [pageSize, setPageSize] = useState(50);
     const [hasMore, setHasMore] = useState(true);
 
     // Data
@@ -176,11 +177,10 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     }, [selectedInstance]);
 
     // Fetch Schedules
-    const fetchSchedules = async (isLoadMore = false) => {
+    const fetchSchedules = async (newPage = 0) => {
         setLoading(true);
-        const currentPage = isLoadMore ? page + 1 : 0;
-        const from = currentPage * PAGE_SIZE;
-        const to = from + PAGE_SIZE - 1;
+        const from = newPage * pageSize;
+        const to = from + pageSize - 1;
 
         let query = supabase
             .from('schedules')
@@ -201,22 +201,17 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         if (error) {
             addLog(`Error fetching schedules: ${error.message}`, 'error');
         } else {
-            if (isLoadMore) {
-                setSchedules(prev => [...prev, ...(data || [])]);
-                setPage(currentPage);
-            } else {
-                setSchedules(data || []);
-                setPage(0);
-            }
+            setSchedules(data || []);
+            setPage(newPage);
             // If we got fewer items than requested, we reached the end
-            setHasMore((data?.length || 0) === PAGE_SIZE);
+            setHasMore((data?.length || 0) === pageSize);
         }
         setLoading(false);
     };
 
     useEffect(() => {
-        if (view === 'list') fetchSchedules();
-    }, [view, listFilter, sortOrder]);
+        if (view === 'list') fetchSchedules(0);
+    }, [view, listFilter, sortOrder, pageSize]);
 
     // Retry Logic
     const handleRetry = async (schedule: Schedule) => {
@@ -666,17 +661,46 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                         </table>
 
                         {/* Load More Trigger */}
-                        {hasMore && schedules.length > 0 && (
-                            <div className="p-4 border-t border-slate-700/50 flex justify-center">
-                                <button
-                                    onClick={() => fetchSchedules(true)}
-                                    disabled={loading}
-                                    className="text-sm text-emerald-400 hover:text-emerald-300 font-medium disabled:opacity-50"
+                        {/* Pagination Controls */}
+                        <div className="p-4 border-t border-slate-700/50 flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-2 text-sm text-slate-400">
+                                <span>Rows per page:</span>
+                                <select
+                                    value={pageSize}
+                                    onChange={(e) => {
+                                        setPageSize(Number(e.target.value));
+                                        setPage(0); // Reset to first page on size change
+                                    }}
+                                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white focus:outline-none focus:border-emerald-500"
                                 >
-                                    {loading ? 'Loading...' : 'Load More'}
-                                </button>
+                                    <option value={20}>20</option>
+                                    <option value={30}>30</option>
+                                    <option value={50}>50</option>
+                                </select>
                             </div>
-                        )}
+
+                            <div className="flex items-center gap-4">
+                                <span className="text-sm text-slate-400">
+                                    Page {page + 1}
+                                </span>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => fetchSchedules(page - 1)}
+                                        disabled={page === 0 || loading}
+                                        className="px-3 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-white transition"
+                                    >
+                                        Previous
+                                    </button>
+                                    <button
+                                        onClick={() => fetchSchedules(page + 1)}
+                                        disabled={!hasMore || loading}
+                                        className="px-3 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-white transition"
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
