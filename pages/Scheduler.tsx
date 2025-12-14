@@ -26,7 +26,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     // Pagination
     const [page, setPage] = useState(0);
-    const [page, setPage] = useState(0);
+
     const [pageSize, setPageSize] = useState(50);
     const [hasMore, setHasMore] = useState(true);
 
