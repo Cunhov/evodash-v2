@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Search, Link as LinkIcon, LogOut, PlusCircle, LayoutGrid, List, Trash2, CheckSquare, Square, X, AlertTriangle } from 'lucide-react';
 import { EvoConfig, Group } from '../types';
 import { useLogs } from '../context/LogContext';
+import { useGroupCache } from '../context/GroupCacheContext';
 import { getApiClient } from '../services/apiAdapter';
 import { supabase } from '../services/supabaseClient';
 import { Calendar, Layers, Clock, Settings, Edit, Image as ImageIcon, AlignLeft, RefreshCw } from 'lucide-react';
@@ -16,10 +17,16 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     const [instances, setInstances] = useState<any[]>([]);
     const [selectedInstance, setSelectedInstance] = useState('');
-    const [groups, setGroups] = useState<Group[]>([]);
+    // Data
+    const { groups: cachedGroups, getGroups, refreshGroups } = useGroupCache();
+    // Derive groups from cache
+    const groups = React.useMemo(() => {
+        return selectedInstance ? getGroups(selectedInstance) : [];
+    }, [selectedInstance, cachedGroups]);
+
     const [loading, setLoading] = useState(false);
 
-    // Filtering & Viewing
+    // Filter & View Stats
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [sortMode, setSortMode] = useState<'name_asc' | 'name_desc' | 'size_asc' | 'size_desc'>('name_asc');
@@ -225,27 +232,23 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
             });
     }, [config]);
 
-    useEffect(() => { if (selectedInstance) fetchGroups(); }, [selectedInstance]);
-
+    // Manual Refresh Function Wrapper
     const fetchGroups = async () => {
+        if (!selectedInstance) return;
         setLoading(true);
-        addLog(`Fetching groups for ${selectedInstance}`, 'info');
-        try {
-            const data = await api.fetchGroups(selectedInstance);
-            if (Array.isArray(data)) {
-                setGroups(data);
-                addLog(`Loaded ${data.length} groups`, 'success');
-            } else {
-                setGroups([]);
-                addLog('Received invalid group data', 'warning', data);
-            }
-            setSelectedGroupIds(new Set()); // Reset selection on reload
-        } catch (e: any) {
-            setGroups([]);
-            addLog(`Failed to fetch groups: ${e.message} `, 'error');
-        }
+        addLog(`Refreshing groups for ${selectedInstance}`, 'info');
+        await refreshGroups(selectedInstance);
+        setSelectedGroupIds(new Set()); // Reset selection on reload
         setLoading(false);
+        addLog(`Groups refreshed`, 'success');
     };
+
+    // Effect to reset selection when switching instances
+    useEffect(() => {
+        setSelectedGroupIds(new Set());
+        // We don't fetch here anymore because context does it or already has it.
+        // But if user switches instance, they see cached data instantly.
+    }, [selectedInstance]);
 
     // --- Group Actions ---
 

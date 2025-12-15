@@ -5,6 +5,7 @@ import { Send, Image, MapPin, User, List, DollarSign, FileText, Phone, Users, Sp
 import { EvoConfig, Group, MessageType } from '../types';
 import { generateMarketingMessage } from '../services/geminiService';
 import { useLogs } from '../context/LogContext';
+import { useGroupCache } from '../context/GroupCacheContext';
 import { getApiClient } from '../services/apiAdapter';
 
 interface MessageSenderProps { config: EvoConfig; }
@@ -38,7 +39,13 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
     const [longitude, setLongitude] = useState('');
 
     // Group Selection
-    const [groups, setGroups] = useState<Group[]>([]);
+    const { groups: cachedGroups, getGroups } = useGroupCache();
+
+    // Derived state for groups (replace local state)
+    const groups = React.useMemo(() => {
+        return targetMode === 'groups' && selectedInstance ? getGroups(selectedInstance) : [];
+    }, [targetMode, selectedInstance, cachedGroups]);
+
     const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
     const [groupSearch, setGroupSearch] = useState('');
     const [groupSortSize, setGroupSortSize] = useState(false); // false = name, true = size
@@ -61,6 +68,10 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
             return;
         }
 
+        // Fetch instances list happens in background via context too, but keeping this local fetch 
+        // is fine for now as it authenticates locally. Context also fetches instances to poll.
+        // We can optimize this later to use context instances too if we want.
+
         addLog('Fetching instances list...', 'info');
         api.fetchInstances()
             .then((data: any) => {
@@ -78,30 +89,13 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
             }).catch((e: any) => addLog(`Error fetching instances: ${e.message}`, 'error'));
     }, [config]);
 
+    // Group fetching effect REMOVED - using cache now.
     useEffect(() => {
         if (targetMode === 'groups') {
-            setGroups([]);
-            setSelectedGroupIds(new Set()); // Reset selection
-
-            if (selectedInstance) {
-                addLog(`Fetching groups for ${selectedInstance}...`, 'info');
-                api.fetchGroups(selectedInstance)
-                    .then((data: any) => {
-                        if (Array.isArray(data)) {
-                            setGroups(data);
-                            addLog(`Loaded ${data.length} groups`, 'success');
-                        } else {
-                            setGroups([]);
-                            addLog('Failed to load groups (invalid response)', 'warning', data);
-                        }
-                    })
-                    .catch((e: any) => {
-                        setGroups([]);
-                        addLog(`Error fetching groups: ${e.message}`, 'error');
-                    });
-            }
+            // Reset selection when switching to groups mode or changing instance
+            setSelectedGroupIds(new Set());
         }
-    }, [targetMode, selectedInstance, config]);
+    }, [targetMode, selectedInstance]);
 
     const fileToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {

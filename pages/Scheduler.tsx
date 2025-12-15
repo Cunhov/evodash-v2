@@ -7,6 +7,7 @@ import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
 import { generateMarketingMessage } from '../services/geminiService';
 import { MediaUploader } from '../components/MediaUploader';
+import { useGroupCache } from '../context/GroupCacheContext';
 import * as uuid from 'uuid';
 
 interface SchedulerProps {
@@ -33,100 +34,19 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     // Data
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [instances, setInstances] = useState<any[]>([]);
-    const [groups, setGroups] = useState<Group[]>([]);
+    // Data
+    const { groups: cachedGroups, getGroups } = useGroupCache();
+    // const [groups, setGroups] = useState<Group[]>([]); // We can now derive this or sync it.
 
-    // Form State
-    const [selectedInstance, setSelectedInstance] = useState('');
-    const [message, setMessage] = useState('');
-    const [scheduleDate, setScheduleDate] = useState('');
-    const [scheduleTime, setScheduleTime] = useState('');
-    const [msgType, setMsgType] = useState<MessageType>('text');
+    // Changing strategy: we will just use the cache directly.
+    // However, the component relies on `groups` state variable.
+    // Let's keep `groups` variable but sync it from cache.
+    // Actually, simpler to just use `const groups = getGroups(selectedInstance);` directly in render.
+    // But we have a `setGroups([])` line 157.
 
-    // Filters & Options
-    const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
-    const [groupSearch, setGroupSearch] = useState('');
-    const [groupSortKey, setGroupSortKey] = useState<'subject' | 'size'>('subject');
-    const [groupSortOrder, setGroupSortOrder] = useState<'asc' | 'desc'>('asc');
-    const [filterMinSize, setFilterMinSize] = useState(0);
-    const [mentionEveryone, setMentionEveryone] = useState(false);
-    const [splitByLines, setSplitByLines] = useState(false);
-    const [recurrenceRule, setRecurrenceRule] = useState('');
-
-    // Rich Message States
-    const [mediaFile, setMediaFile] = useState<File | null>(null);
-    const [pollName, setPollName] = useState('');
-    const [pollOptions, setPollOptions] = useState<string[]>(['Option 1', 'Option 2']);
-    const [pixKey, setPixKey] = useState('');
-    const [pixAmount, setPixAmount] = useState('');
-    const [contactName, setContactName] = useState('');
-    const [contactPhone, setContactPhone] = useState('');
-    const [latitude, setLatitude] = useState('');
-    const [longitude, setLongitude] = useState('');
-
-    // Preview
-    const [previewItem, setPreviewItem] = useState<Schedule | null>(null);
-
-    // Templates
-    const [showTemplateModal, setShowTemplateModal] = useState(false);
-    const [templates, setTemplates] = useState<Template[]>([]);
-    const [newTemplateName, setNewTemplateName] = useState('');
-    const [newTemplateContent, setNewTemplateContent] = useState('');
-    const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
-
-    const fetchTemplates = async () => {
-        const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
-        if (data) setTemplates(data);
-    };
-
-    const handleSaveTemplate = async () => {
-        if (!newTemplateName || !newTemplateContent) return;
-        const { error } = await supabase.from('templates').insert({ name: newTemplateName, content: newTemplateContent, type: 'text' });
-        if (error) {
-            addLog('Failed to save template', 'error');
-        } else {
-            addLog('Template saved!', 'success');
-            setNewTemplateName('');
-            setNewTemplateContent('');
-            setIsCreatingTemplate(false);
-            fetchTemplates();
-        }
-    };
-
-    const handleDeleteTemplate = async (id: string) => {
-        if (!confirm('Delete template?')) return;
-        await supabase.from('templates').delete().eq('id', id);
-        fetchTemplates();
-    };
-
-    const handleLoadTemplate = (content: string) => {
-        setMessage(content);
-        setShowTemplateModal(false);
-        addLog('Template loaded', 'success');
-    };
-
-    const uploadToStorage = async (file: File): Promise<string> => {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from('schedules')
-            .upload(filePath, file);
-
-        if (uploadError) {
-            throw uploadError;
-        }
-
-        const { data } = supabase.storage
-            .from('schedules')
-            .getPublicUrl(filePath);
-
-        return data.publicUrl;
-    };
-
-    // AI
-    const [showAiModal, setShowAiModal] = useState(false);
-    const [aiPrompt, setAiPrompt] = useState('');
+    const groups = React.useMemo(() => {
+        return getGroups(selectedInstance);
+    }, [selectedInstance, cachedGroups]);
 
     // Loading
     const [loading, setLoading] = useState(false);
@@ -146,6 +66,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         }
     }, [config]);
 
+    // Fetch Groups NO LONGER NEEDED via local effect
+    // But we might want to trigger a refresh just in case when opening?
+    // The background poller handles it.
+
+    /* 
     // Fetch Groups when Instance Changes
     useEffect(() => {
         let isActive = true;
@@ -174,7 +99,8 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         return () => {
             isActive = false;
         };
-    }, [selectedInstance]);
+    }, [selectedInstance]); 
+    */
 
     // Fetch Schedules
     const fetchSchedules = async (newPage = 0) => {
@@ -187,6 +113,21 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             .select('*')
             .order('enviar_em', { ascending: sortOrder === 'asc' })
             .range(from, to);
+
+        // Filter for "Head" chunks only (chunkIndex 0 or null)
+        // This ensures we paginate by logical message batches, not database rows.
+        // Note: We use .or() with a filter syntax for JSONB or just simple column checks if strict columns existed.
+        // Since chunkIndex is in JSONB payload, we need correct syntax.
+        // However, looking at the insert: payload: { chunkIndex: i }
+        // We can use the arrow operator for JSONB filtering in PostgREST.
+        // Syntax: 'payload->>chunkIndex.eq.0,payload->>chunkIndex.is.null' inside an `or` filter doesn't work easily with chaining.
+        // A better approach for mixed data (some have payload, some don't) is:
+        // .or('payload->>chunkIndex.eq.0,payload->>chunkIndex.is.null')
+
+        // Actually, let's try a safer approach compatible with standard PostgREST if possible.
+        // .not('payload->>chunkIndex', 'gt', '0') might be efficient?
+        // Or simpler: We want rows where chunkIndex is 0 OR it doesn't exist.
+        query = query.or('payload->>chunkIndex.eq.0,payload->>chunkIndex.is.null');
 
         if (listFilter === 'pending') {
             query = query.eq('status', 'pending');
@@ -433,25 +374,24 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
             let error;
             // logic: If we are editing, update the FIRST chunk into the existing ID if it's a single edit.
-            // If we are editing a BATCH, we delete the old batch and insert new.
-            // All subsequent chunks (or if we are not editing) get INSERTed.
+            // If we are editing a BATCH, we delete the existing batch and insert new content as a new batch.
+            // Note: We only do the delete ONCE (when i === 0).
 
             if (editingBatchId && i === 0) {
-                // If editing a batch, we deleted previous items in handleSave preparation or we delete now?
-                // Better to delete ONCE before loop. Let's adjust logic.
-                // Actually, let's delete here if it's the first iteration.
                 const { error: delError } = await supabase.from('schedules').delete().eq('payload->>batchId', editingBatchId);
                 if (delError) console.error('Error deleting old batch', delError);
 
                 const { error: insertError } = await supabase.from('schedules').insert(dbPayload);
                 error = insertError;
             } else if (editingId && !editingBatchId && i === 0) {
+                // Single item edit: update it
                 const { error: updateError } = await supabase
                     .from('schedules')
                     .update(dbPayload)
                     .eq('id', editingId);
                 error = updateError;
             } else {
+                // New item or subsequent chunk of a batch
                 const { error: insertError } = await supabase
                     .from('schedules')
                     .insert(dbPayload);
@@ -524,23 +464,18 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         });
 
     const groupedSchedules = React.useMemo(() => {
-        const result: any[] = [];
-        const processedBatches = new Set<string>();
-
-        schedules.forEach(s => {
+        // Since we now filter by chunkIndex=0 on the server, we just need to format the data
+        return schedules.map(s => {
             const bid = s.payload?.batchId;
             if (bid) {
-                if (!processedBatches.has(bid)) {
-                    const count = schedules.filter(i => i.payload?.batchId === bid).length;
-                    const masterText = s.payload?.masterText || s.text;
-                    result.push({ ...s, text: masterText, isBatch: true, batchCount: count });
-                    processedBatches.add(bid);
-                }
+                // It is a batch head
+                const masterText = s.payload?.masterText || s.text;
+                const totalChunks = s.payload?.totalChunks || 1;
+                return { ...s, text: masterText, isBatch: true, batchCount: totalChunks };
             } else {
-                result.push(s);
+                return s;
             }
         });
-        return result;
     }, [schedules]);
 
     return (

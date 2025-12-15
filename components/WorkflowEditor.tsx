@@ -20,6 +20,7 @@ import { MessageNode } from './nodes/MessageNode';
 import { Save, Play, Plus, Trash2, X, Archive, FolderOpen, Copy } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
+import { useGroupCache } from '../context/GroupCacheContext';
 import { EvoConfig } from '../types';
 import { GroupSelector } from './GroupSelector';
 import { RichMessageForm } from './RichMessageForm';
@@ -54,9 +55,14 @@ const WorkflowEditorContent: React.FC<WorkflowEditorProps> = ({ config, onClose 
     const [selectedNode, setSelectedNode] = useState<Node | null>(null);
 
     // Data for Selectors
-    const [instances, setInstances] = useState<any[]>([]);
-    const [groups, setGroups] = useState<any[]>([]);
-    const [loadingGroups, setLoadingGroups] = useState(false);
+    // Data for Selectors
+    const { groups: cachedGroups, getGroups } = useGroupCache();
+    // Derive groups for active selection
+    // We only need groups when ConfigModal is open and we have an instance selected in that node.
+    // simpler: just access getGroups directly when passing to props.
+
+    // We can keep `groups` state if we want to memoize or just derive it on render.
+    // Let's derive it.
 
     // Modal State
     const [showConfigModal, setShowConfigModal] = useState(false);
@@ -75,24 +81,13 @@ const WorkflowEditorContent: React.FC<WorkflowEditorProps> = ({ config, onClose 
         });
     }, [api]);
 
-    // Fetch Groups when Start Node Instance changes (in Modal or when node data changes?)
-    // We'll fetch groups when opening the modal for a Start Node that has an instance selected,
-    // OR when changing the instance in the modal.
-    const fetchGroupsForInstance = async (instanceName: string) => {
-        setLoadingGroups(true);
-        try {
-            const data: any = await api.fetchGroups(instanceName);
-            if (Array.isArray(data)) setGroups(data);
-            else setGroups([]);
-        } catch (e) { console.error(e); setGroups([]); }
-        finally { setLoadingGroups(false); }
-    };
-
-    useEffect(() => {
+    // Derived groups for the currently configured node
+    const activeGroups = useMemo(() => {
         if (showConfigModal && selectedNode?.type === 'start' && nodeData.instance) {
-            fetchGroupsForInstance(nodeData.instance);
+            return getGroups(nodeData.instance);
         }
-    }, [showConfigModal, selectedNode, nodeData.instance]); // Re-fetch if instance changes in modal
+        return [];
+    }, [showConfigModal, selectedNode, nodeData.instance, cachedGroups]);
 
     const onConnect = useCallback(
         (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -445,12 +440,12 @@ const WorkflowEditorContent: React.FC<WorkflowEditorProps> = ({ config, onClose 
 
                                     {nodeData.instance && (
                                         <GroupSelector
-                                            groups={groups}
+                                            groups={activeGroups}
                                             selectedGroupIds={new Set(nodeData.groups || [])}
                                             onChange={(ids) => setNodeData({ ...nodeData, groups: Array.from(ids) })}
                                             minSize={nodeData.minSize || 0}
                                             onMinSizeChange={(size) => setNodeData({ ...nodeData, minSize: size })}
-                                            isLoading={loadingGroups}
+                                            isLoading={false} // Cache is instant or silently loading
                                         />
                                     )}
                                 </div>

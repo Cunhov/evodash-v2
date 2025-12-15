@@ -13,6 +13,7 @@ import { EvoConfig } from './types';
 import { getConfig, saveConfig } from './services/configService';
 import { LogProvider } from './context/LogContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { GroupCacheProvider } from './context/GroupCacheContext';
 import '@xyflow/react/dist/style.css';
 
 const AppRoutes: React.FC = () => {
@@ -51,18 +52,20 @@ const AppRoutes: React.FC = () => {
         <Route path="/*" element={
           !user ? <Navigate to="/login" replace /> :
             !config ? <ConnectionSetup onConfigSave={handleConfigSave} /> :
-              <Layout config={config}>
-                <Routes>
-                  <Route path="/" element={<Dashboard config={config} />} />
-                  <Route path="/dashboard" element={<Dashboard config={config} />} />
-                  <Route path="/contacts" element={<Contacts />} />
-                  <Route path="/instances" element={<InstanceManager config={config} />} />
-                  <Route path="/groups" element={<GroupManager config={config} />} />
-                  <Route path="/send" element={<MessageSender config={config} />} />
-                  <Route path="/scheduler" element={<Scheduler config={config} />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </Layout>
+              <GroupCacheProvider config={config}>
+                <Layout config={config}>
+                  <Routes>
+                    <Route path="/" element={<Dashboard config={config} />} />
+                    <Route path="/dashboard" element={<Dashboard config={config} />} />
+                    <Route path="/contacts" element={<Contacts />} />
+                    <Route path="/instances" element={<InstanceManager config={config} />} />
+                    <Route path="/groups" element={<GroupManager config={config} />} />
+                    <Route path="/send" element={<MessageSender config={config} />} />
+                    <Route path="/scheduler" element={<Scheduler config={config} />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Layout>
+              </GroupCacheProvider>
         } />
       </Routes>
     </Router>
