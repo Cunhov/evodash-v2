@@ -36,6 +36,99 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [instances, setInstances] = useState<any[]>([]);
     // Data
     const { groups: cachedGroups, getGroups } = useGroupCache();
+
+    // Form State
+    const [selectedInstance, setSelectedInstance] = useState('');
+    const [message, setMessage] = useState('');
+    const [scheduleDate, setScheduleDate] = useState('');
+    const [scheduleTime, setScheduleTime] = useState('');
+    const [msgType, setMsgType] = useState<MessageType>('text');
+
+    // Filters & Options
+    const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+    const [groupSearch, setGroupSearch] = useState('');
+    const [groupSortKey, setGroupSortKey] = useState<'subject' | 'size'>('subject');
+    const [groupSortOrder, setGroupSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [filterMinSize, setFilterMinSize] = useState(0);
+    const [mentionEveryone, setMentionEveryone] = useState(false);
+    const [splitByLines, setSplitByLines] = useState(false);
+    const [recurrenceRule, setRecurrenceRule] = useState('');
+
+    // Rich Message States
+    const [mediaFile, setMediaFile] = useState<File | null>(null);
+    const [pollName, setPollName] = useState('');
+    const [pollOptions, setPollOptions] = useState<string[]>(['Option 1', 'Option 2']);
+    const [pixKey, setPixKey] = useState('');
+    const [pixAmount, setPixAmount] = useState('');
+    const [contactName, setContactName] = useState('');
+    const [contactPhone, setContactPhone] = useState('');
+    const [latitude, setLatitude] = useState('');
+    const [longitude, setLongitude] = useState('');
+
+    // Preview
+    const [previewItem, setPreviewItem] = useState<Schedule | null>(null);
+
+    // Templates
+    const [showTemplateModal, setShowTemplateModal] = useState(false);
+    const [templates, setTemplates] = useState<Template[]>([]);
+    const [newTemplateName, setNewTemplateName] = useState('');
+    const [newTemplateContent, setNewTemplateContent] = useState('');
+    const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+
+    const fetchTemplates = async () => {
+        const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
+        if (data) setTemplates(data);
+    };
+
+    const handleSaveTemplate = async () => {
+        if (!newTemplateName || !newTemplateContent) return;
+        const { error } = await supabase.from('templates').insert({ name: newTemplateName, content: newTemplateContent, type: 'text' });
+        if (error) {
+            addLog('Failed to save template', 'error');
+        } else {
+            addLog('Template saved!', 'success');
+            setNewTemplateName('');
+            setNewTemplateContent('');
+            setIsCreatingTemplate(false);
+            fetchTemplates();
+        }
+    };
+
+    const handleDeleteTemplate = async (id: string) => {
+        if (!confirm('Delete template?')) return;
+        await supabase.from('templates').delete().eq('id', id);
+        fetchTemplates();
+    };
+
+    const handleLoadTemplate = (content: string) => {
+        setMessage(content);
+        setShowTemplateModal(false);
+        addLog('Template loaded', 'success');
+    };
+
+    const uploadToStorage = async (file: File): Promise<string> => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('schedules')
+            .upload(filePath, file);
+
+        if (uploadError) {
+            throw uploadError;
+        }
+
+        const { data } = supabase.storage
+            .from('schedules')
+            .getPublicUrl(filePath);
+
+        return data.publicUrl;
+    };
+
+    // AI
+    const [showAiModal, setShowAiModal] = useState(false);
+    const [aiPrompt, setAiPrompt] = useState('');
     // const [groups, setGroups] = useState<Group[]>([]); // We can now derive this or sync it.
 
     // Changing strategy: we will just use the cache directly.

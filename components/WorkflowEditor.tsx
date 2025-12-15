@@ -72,6 +72,9 @@ const WorkflowEditorContent: React.FC<WorkflowEditorProps> = ({ config, onClose 
     const [showLoadModal, setShowLoadModal] = useState(false);
     const [templates, setTemplates] = useState<any[]>([]);
 
+    // Instances State (needed for the modal selector)
+    const [instances, setInstances] = useState<any[]>([]);
+
     // Fetch Instances once
     useEffect(() => {
         api.fetchInstances().then((data: any) => {
@@ -275,7 +278,8 @@ const WorkflowEditorContent: React.FC<WorkflowEditorProps> = ({ config, onClose 
                     const type = nd.msgType || 'text';
 
                     // Construct payload based on type (logic from Scheduler)
-                    let payloadFull: any = { ...nd.payload };
+                    const sourcePayload = (nd.payload && typeof nd.payload === 'object') ? nd.payload : {};
+                    let payloadFull: any = { ...sourcePayload };
                     if (type === 'contact') {
                         payloadFull = { contactMessage: [{ fullName: payloadFull.contactName, wuid: payloadFull.contactPhone, phoneNumber: payloadFull.contactPhone }] };
                     } else if (type === 'location') {
