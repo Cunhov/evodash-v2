@@ -39,12 +39,17 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
     const [longitude, setLongitude] = useState('');
 
     // Group Selection
-    const { groups: cachedGroups, getGroups } = useGroupCache();
+    const { groups: cachedGroups, getGroups, refreshGroups } = useGroupCache();
 
     // Derived state for groups (replace local state)
     const groups = React.useMemo(() => {
         return targetMode === 'groups' && selectedInstance ? getGroups(selectedInstance) : [];
     }, [targetMode, selectedInstance, cachedGroups]);
+
+    // Refresh on instance change
+    useEffect(() => {
+        if (selectedInstance) refreshGroups(selectedInstance);
+    }, [selectedInstance]);
 
     const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
     const [groupSearch, setGroupSearch] = useState('');

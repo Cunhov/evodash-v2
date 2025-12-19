@@ -24,6 +24,11 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
         return selectedInstance ? getGroups(selectedInstance) : [];
     }, [selectedInstance, cachedGroups]);
 
+    // Refresh on instance change
+    useEffect(() => {
+        if (selectedInstance) refreshGroups(selectedInstance);
+    }, [selectedInstance]);
+
     const [loading, setLoading] = useState(false);
 
     // Filter & View Stats

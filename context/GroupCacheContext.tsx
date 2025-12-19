@@ -85,7 +85,7 @@ export const GroupCacheProvider: React.FC<{ children: React.ReactNode; config: E
         runCycle();
 
         // Setup interval
-        const intervalId = setInterval(runCycle, 60 * 1000); // 60 seconds
+        const intervalId = setInterval(runCycle, 60 * 60 * 1000); // 1 hour
 
         return () => {
             isMounted = false;

@@ -35,10 +35,15 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [instances, setInstances] = useState<any[]>([]);
     // Data
-    const { groups: cachedGroups, getGroups } = useGroupCache();
+    const { groups: cachedGroups, getGroups, refreshGroups } = useGroupCache();
 
     // Form State
     const [selectedInstance, setSelectedInstance] = useState('');
+
+    // Trigger refresh when entering tab or changing instance
+    useEffect(() => {
+        if (selectedInstance) refreshGroups(selectedInstance);
+    }, [selectedInstance]);
     const [message, setMessage] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
     const [scheduleTime, setScheduleTime] = useState('');
