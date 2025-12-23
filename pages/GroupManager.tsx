@@ -131,7 +131,13 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
         const targetGroups = groups
             .filter(g => selectedGroupIds.has(g.id))
-            .sort((a, b) => (b.size || 0) - (a.size || 0)); // Sort by Size DESC
+            .sort((a, b) => {
+                // 1. Sort by Size (Descending)
+                const sizeDiff = (b.size || 0) - (a.size || 0);
+                if (sizeDiff !== 0) return sizeDiff;
+                // 2. Sort by Name (Ascending) for ties
+                return (a.subject || '').localeCompare(b.subject || '');
+            });
 
         if (targetGroups.length === 0) return;
 
@@ -155,24 +161,46 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
             }
             const scheduledDate = new Date(`${scheduleDate}T${scheduleTime}`);
 
-            // Insert one schedule per action type to keep logic simple on worker
-            // Or worker could handle composite, but let's stick to simple scheduled items for now as per current worker logic
             for (const action of actionsToPerform) {
-                const { error } = await supabase.from('schedules').insert({
-                    instance: selectedInstance,
-                    type: 'group_action',
-                    status: 'pending',
-                    enviar_em: scheduledDate.toISOString(),
-                    payload: {
-                        action: action.type,
-                        value: action.value,
-                        groupIds: targetGroups.map(g => g.id)
-                    },
-                    text: `Bulk Group Action: ${action.type}`,
-                    api_key: config.apiKey
-                });
+                if (action.type === 'update_subject') {
+                    // For renaming, we must schedule individually to support sequential numbering
+                    // Otherwise the worker would apply the same name to everyone
+                    for (let i = 0; i < targetGroups.length; i++) {
+                        const group = targetGroups[i];
+                        const numberedSubject = `${action.value} ${i + 1}`;
 
-                if (error) addLog(`Failed to schedule ${action.type}`, 'error');
+                        const { error } = await supabase.from('schedules').insert({
+                            instance: selectedInstance,
+                            type: 'group_action',
+                            status: 'pending',
+                            enviar_em: scheduledDate.toISOString(),
+                            payload: {
+                                action: action.type,
+                                value: numberedSubject,
+                                groupIds: [group.id]
+                            },
+                            text: `Bulk Rename: ${numberedSubject}`,
+                            api_key: config.apiKey
+                        });
+                        if (error) addLog(`Failed to schedule rename for ${group.subject}`, 'error');
+                    }
+                } else {
+                    // For other actions (desc, icon, settings), value is shared, so we can bulk schedule
+                    const { error } = await supabase.from('schedules').insert({
+                        instance: selectedInstance,
+                        type: 'group_action',
+                        status: 'pending',
+                        enviar_em: scheduledDate.toISOString(),
+                        payload: {
+                            action: action.type,
+                            value: action.value,
+                            groupIds: targetGroups.map(g => g.id)
+                        },
+                        text: `Bulk Group Action: ${action.type}`,
+                        api_key: config.apiKey
+                    });
+                    if (error) addLog(`Failed to schedule ${action.type}`, 'error');
+                }
             }
 
             addLog('Actions scheduled successfully', 'success');
@@ -195,7 +223,10 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
                 try {
                     // Execute all defined actions for this group
-                    if (bulkSubject.trim()) await api.updateGroupSubject(selectedInstance, group.id, bulkSubject);
+                    if (bulkSubject.trim()) {
+                        const numberedSubject = `${bulkSubject} ${i + 1}`;
+                        await api.updateGroupSubject(selectedInstance, group.id, numberedSubject);
+                    }
                     if (bulkDescription.trim()) await api.updateGroupDescription(selectedInstance, group.id, bulkDescription);
 
                     if (bulkSettingsActions.size > 0) {
