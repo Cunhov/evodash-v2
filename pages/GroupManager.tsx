@@ -115,22 +115,10 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     const handleBulkExecute = async () => {
         // Capture context at start to avoid race conditions if user switches tabs during execution
-        const currentAction = bulkAction;
 
-        // Prepare Payload
-        let payloadValue: any;
-
-        if (currentAction === 'subject') payloadValue = bulkSubject;
-        else if (currentAction === 'description') payloadValue = bulkDescription;
-        else if (currentAction === 'settings') {
-            payloadValue = Array.from(bulkSettingsActions);
-            if (payloadValue.length === 0) {
-                addLog('Select at least one setting', 'error');
-                return;
-            }
-        }
-
-        if (currentAction === 'picture' && bulkFile) {
+        // Prepare uploaded image URL if needed (do this once)
+        let publicPictureUrl: string | null = null;
+        if (bulkFile) {
             const fileName = `group-icon-${uuid.v4()}-${bulkFile.name}`;
             const { data, error } = await supabase.storage.from('group-media').upload(fileName, bulkFile);
             if (error) {
@@ -138,7 +126,7 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                 return;
             }
             const { data: { publicUrl } } = supabase.storage.from('group-media').getPublicUrl(fileName);
-            payloadValue = publicUrl;
+            publicPictureUrl = publicUrl;
         }
 
         const targetGroups = groups
@@ -147,6 +135,18 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
         if (targetGroups.length === 0) return;
 
+        // Collect actions to perform
+        const actionsToPerform: { type: string, value: any }[] = [];
+        if (bulkSubject.trim()) actionsToPerform.push({ type: 'update_subject', value: bulkSubject });
+        if (bulkDescription.trim()) actionsToPerform.push({ type: 'update_description', value: bulkDescription });
+        if (bulkSettingsActions.size > 0) actionsToPerform.push({ type: 'update_settings', value: Array.from(bulkSettingsActions) });
+        if (publicPictureUrl) actionsToPerform.push({ type: 'update_picture', value: publicPictureUrl });
+
+        if (actionsToPerform.length === 0) {
+            addLog('No actions to execute. Please fill at least one field.', 'warning');
+            return;
+        }
+
         if (isScheduled) {
             // Schedule it
             if (!scheduleDate || !scheduleTime) {
@@ -154,25 +154,34 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                 return;
             }
             const scheduledDate = new Date(`${scheduleDate}T${scheduleTime}`);
-            const { error } = await supabase.from('schedules').insert({
-                instance: selectedInstance,
-                type: 'group_action',
-                status: 'pending',
-                enviar_em: scheduledDate.toISOString(),
-                payload: {
-                    action: `update_${currentAction}`,
-                    value: payloadValue,
-                    groupIds: targetGroups.map(g => g.id)
-                },
-                text: `Bulk Group Action: ${currentAction}`,
-                api_key: config.apiKey
-            });
 
-            if (error) addLog('Failed to schedule action', 'error');
-            else {
-                addLog('Action scheduled successfully', 'success');
-                setShowBulkModal(false);
+            // Insert one schedule per action type to keep logic simple on worker
+            // Or worker could handle composite, but let's stick to simple scheduled items for now as per current worker logic
+            for (const action of actionsToPerform) {
+                const { error } = await supabase.from('schedules').insert({
+                    instance: selectedInstance,
+                    type: 'group_action',
+                    status: 'pending',
+                    enviar_em: scheduledDate.toISOString(),
+                    payload: {
+                        action: action.type,
+                        value: action.value,
+                        groupIds: targetGroups.map(g => g.id)
+                    },
+                    text: `Bulk Group Action: ${action.type}`,
+                    api_key: config.apiKey
+                });
+
+                if (error) addLog(`Failed to schedule ${action.type}`, 'error');
             }
+
+            addLog('Actions scheduled successfully', 'success');
+            setShowBulkModal(false);
+            // Reset fields
+            setBulkSubject('');
+            setBulkDescription('');
+            setBulkFile(null);
+            setBulkSettingsActions(new Set());
 
         } else {
             // Immediate Execution
@@ -185,40 +194,49 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                 addLog(`Processing ${group.subject} (${i + 1}/${targetGroups.length})`, 'info');
 
                 try {
-                    if (currentAction === 'subject') await api.updateGroupSubject(selectedInstance, group.id, payloadValue);
-                    if (currentAction === 'description') await api.updateGroupDescription(selectedInstance, group.id, payloadValue);
-                    if (currentAction === 'settings') {
-                        const settings = Array.isArray(payloadValue) ? payloadValue : [payloadValue];
+                    // Execute all defined actions for this group
+                    if (bulkSubject.trim()) await api.updateGroupSubject(selectedInstance, group.id, bulkSubject);
+                    if (bulkDescription.trim()) await api.updateGroupDescription(selectedInstance, group.id, bulkDescription);
+
+                    if (bulkSettingsActions.size > 0) {
+                        const settings = Array.from(bulkSettingsActions);
                         for (const s of settings) {
-                            await api.updateGroupSetting(selectedInstance, group.id, s);
-                            // Small delay between settings
+                            await api.updateGroupSetting(selectedInstance, group.id, s as any);
                             await new Promise(r => setTimeout(r, 500));
                         }
                     }
-                    if (currentAction === 'picture') {
+
+                    if (publicPictureUrl) {
                         // Fetch the image back as blob to convert to base64 for the current API adapter.
-                        const imgRes = await fetch(payloadValue);
+                        const imgRes = await fetch(publicPictureUrl);
                         const blob = await imgRes.blob();
                         const reader = new FileReader();
                         const base64: string = await new Promise((resolve) => {
                             reader.onloadend = () => resolve(reader.result as string);
                             reader.readAsDataURL(blob);
                         });
-                        await api.updateGroupPicture(selectedInstance, group.id, base64.split(',')[1]); // remove prefix
+                        await api.updateGroupPicture(selectedInstance, group.id, base64.split(',')[1]);
                     }
+
                 } catch (e: any) {
                     addLog(`Failed to update ${group.subject}: ${e.message}`, 'error');
                 }
 
-                // Delay 3 seconds
+                // Delay 3 seconds between groups
                 if (i < targetGroups.length - 1) await new Promise(r => setTimeout(r, 3000));
             }
 
             setBulkProcessing(false);
             setBulkProgress(null);
             setShowBulkModal(false);
-            addLog('Bulk action completed', 'success');
+            addLog('Bulk actions completed', 'success');
             fetchGroups();
+
+            // Reset fields
+            setBulkSubject('');
+            setBulkDescription('');
+            setBulkFile(null);
+            setBulkSettingsActions(new Set());
         }
     };
 
