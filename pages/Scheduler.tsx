@@ -776,8 +776,17 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                             <div className="flex justify-between items-end">
                                 <label className="text-sm font-medium text-slate-300">Select Groups ({selectedGroupIds.size})</label>
                                 <button onClick={() => {
-                                    if (selectedGroupIds.size === groups.length) setSelectedGroupIds(new Set());
-                                    else setSelectedGroupIds(new Set(groups.map(g => g.id)));
+                                    const allFilteredSelected = filteredGroups.length > 0 && filteredGroups.every(g => selectedGroupIds.has(g.id));
+
+                                    if (allFilteredSelected) {
+                                        const newSet = new Set(selectedGroupIds);
+                                        filteredGroups.forEach(g => newSet.delete(g.id));
+                                        setSelectedGroupIds(newSet);
+                                    } else {
+                                        const newSet = new Set(selectedGroupIds);
+                                        filteredGroups.forEach(g => newSet.add(g.id));
+                                        setSelectedGroupIds(newSet);
+                                    }
                                 }} className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
                                     <CheckCircle size={14} /> Select All
                                 </button>
