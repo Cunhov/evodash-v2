@@ -57,6 +57,7 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     // Bulk Action State
     const [showBulkModal, setShowBulkModal] = useState(false);
+    const [bulkAction, setBulkAction] = useState<'subject' | 'description' | 'picture' | 'settings'>('subject');
     const [bulkSubject, setBulkSubject] = useState('');
     const [bulkDescription, setBulkDescription] = useState('');
     const [bulkFile, setBulkFile] = useState<File | null>(null);
