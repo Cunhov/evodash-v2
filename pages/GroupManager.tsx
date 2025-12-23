@@ -57,8 +57,8 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
 
     // Bulk Action State
     const [showBulkModal, setShowBulkModal] = useState(false);
-    const [bulkAction, setBulkAction] = useState<'subject' | 'description' | 'picture' | 'settings'>('subject');
-    const [bulkValue, setBulkValue] = useState('');
+    const [bulkSubject, setBulkSubject] = useState('');
+    const [bulkDescription, setBulkDescription] = useState('');
     const [bulkFile, setBulkFile] = useState<File | null>(null);
     const [bulkSettingsActions, setBulkSettingsActions] = useState<Set<string>>(new Set());
 
@@ -113,10 +113,15 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
     };
 
     const handleBulkExecute = async () => {
-        // Prepare Payload
-        let payloadValue: any = bulkValue;
+        // Capture context at start to avoid race conditions if user switches tabs during execution
+        const currentAction = bulkAction;
 
-        if (bulkAction === 'settings') {
+        // Prepare Payload
+        let payloadValue: any;
+
+        if (currentAction === 'subject') payloadValue = bulkSubject;
+        else if (currentAction === 'description') payloadValue = bulkDescription;
+        else if (currentAction === 'settings') {
             payloadValue = Array.from(bulkSettingsActions);
             if (payloadValue.length === 0) {
                 addLog('Select at least one setting', 'error');
@@ -124,7 +129,7 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
             }
         }
 
-        if (bulkAction === 'picture' && bulkFile) {
+        if (currentAction === 'picture' && bulkFile) {
             const fileName = `group-icon-${uuid.v4()}-${bulkFile.name}`;
             const { data, error } = await supabase.storage.from('group-media').upload(fileName, bulkFile);
             if (error) {
@@ -154,11 +159,11 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                 status: 'pending',
                 enviar_em: scheduledDate.toISOString(),
                 payload: {
-                    action: `update_${bulkAction}`,
+                    action: `update_${currentAction}`,
                     value: payloadValue,
                     groupIds: targetGroups.map(g => g.id)
                 },
-                text: `Bulk Group Action: ${bulkAction}`,
+                text: `Bulk Group Action: ${currentAction}`,
                 api_key: config.apiKey
             });
 
@@ -179,9 +184,9 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                 addLog(`Processing ${group.subject} (${i + 1}/${targetGroups.length})`, 'info');
 
                 try {
-                    if (bulkAction === 'subject') await api.updateGroupSubject(selectedInstance, group.id, payloadValue);
-                    if (bulkAction === 'description') await api.updateGroupDescription(selectedInstance, group.id, payloadValue);
-                    if (bulkAction === 'settings') {
+                    if (currentAction === 'subject') await api.updateGroupSubject(selectedInstance, group.id, payloadValue);
+                    if (currentAction === 'description') await api.updateGroupDescription(selectedInstance, group.id, payloadValue);
+                    if (currentAction === 'settings') {
                         const settings = Array.isArray(payloadValue) ? payloadValue : [payloadValue];
                         for (const s of settings) {
                             await api.updateGroupSetting(selectedInstance, group.id, s);
@@ -189,7 +194,7 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                             await new Promise(r => setTimeout(r, 500));
                         }
                     }
-                    if (bulkAction === 'picture') {
+                    if (currentAction === 'picture') {
                         // Fetch the image back as blob to convert to base64 for the current API adapter.
                         const imgRes = await fetch(payloadValue);
                         const blob = await imgRes.blob();
@@ -769,14 +774,14 @@ const GroupManager: React.FC<GroupManagerProps> = ({ config }) => {
                                         {bulkAction === 'subject' && (
                                             <div>
                                                 <label className="text-xs text-slate-400 block mb-1">New Group Name</label>
-                                                <input type="text" value={bulkValue} onChange={e => setBulkValue(e.target.value)} className="w-full bg-slate-800 border-slate-700 text-white p-2 rounded" placeholder="Enter new name..." />
+                                                <input type="text" value={bulkSubject} onChange={e => setBulkSubject(e.target.value)} className="w-full bg-slate-800 border-slate-700 text-white p-2 rounded" placeholder="Enter new name..." />
                                             </div>
                                         )}
 
                                         {bulkAction === 'description' && (
                                             <div>
                                                 <label className="text-xs text-slate-400 block mb-1">New Description</label>
-                                                <textarea value={bulkValue} onChange={e => setBulkValue(e.target.value)} className="w-full bg-slate-800 border-slate-700 text-white p-2 rounded h-24" placeholder="Enter description..." />
+                                                <textarea value={bulkDescription} onChange={e => setBulkDescription(e.target.value)} className="w-full bg-slate-800 border-slate-700 text-white p-2 rounded h-24" placeholder="Enter description..." />
                                             </div>
                                         )}
 
