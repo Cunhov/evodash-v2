@@ -61,7 +61,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
 
     // AI
     const [showAiModal, setShowAiModal] = useState(false);
-    const [showAiModal, setShowAiModal] = useState(false);
+
     const [aiPrompt, setAiPrompt] = useState('');
     
     // Media Library
