@@ -206,7 +206,8 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                         text: chunk || `Message (${msgType})`, // Ensure text column is never null
                         enviar_em: sendAt,
                         status: 'pending',
-                        group_filter: targetMode === 'groups' ? 'manual_selection' : null
+                        group_filter: targetMode === 'groups' ? 'manual_selection' : null,
+                        api_key: config.apiKey
                     });
                 });
             });
