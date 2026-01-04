@@ -285,10 +285,9 @@ const processSchedule = async (schedule: Schedule) => {
                         console.log(`[Worker] Fetching media from ${payload.media}...`);
                         const mediaRes = await fetch(payload.media);
                         if (mediaRes.ok) {
-                            const arrayBuffer = await mediaRes.arrayBuffer();
-                            const buffer = Buffer.from(arrayBuffer);
-                            payload.media = buffer.toString('base64');
-                            console.log(`[Worker] Converted media to Base64 (${payload.media.length} chars)`);
+                            // Validating media availability before sending
+                            // We do NOT convert to Base64 for videos to avoid ""Maximum call stack size exceeded"" on the API
+                            console.log(`[Worker] Validating media URL: ${payload.media}`);
                         } else {
                             throw new Error(`Failed to fetch media: ${mediaRes.statusText}`);
                         }
