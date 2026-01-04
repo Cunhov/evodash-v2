@@ -344,6 +344,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             return;
         }
 
+        if (!config.apiKey) {
+            alert('API Key is missing. Please check your connection settings.');
+            return;
+        }
+
         if (msgType === 'text' && !message) {
             alert('Please enter a message');
             return;

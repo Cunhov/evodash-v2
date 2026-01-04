@@ -290,10 +290,11 @@ const processSchedule = async (schedule: Schedule) => {
                             payload.media = buffer.toString('base64');
                             console.log(`[Worker] Converted media to Base64 (${payload.media.length} chars)`);
                         } else {
-                            console.error(`[Worker] Failed to fetch media: ${mediaRes.statusText}`);
+                            throw new Error(`Failed to fetch media: ${mediaRes.statusText}`);
                         }
-                    } catch (fetchError) {
+                    } catch (fetchError: any) {
                         console.error(`[Worker] Error fetching media URL:`, fetchError);
+                        throw new Error(`Media fetch failed: ${fetchError.message}`);
                     }
                 }
 
@@ -302,7 +303,12 @@ const processSchedule = async (schedule: Schedule) => {
                 const logPayload = { ...payload, media: payload.media ? (payload.media.substring(0, 50) + '...') : undefined };
                 console.log(`[Worker] Payload:`, JSON.stringify(logPayload, null, 2));
 
-                await api.sendMessage(schedule.instance, msgType, payload);
+                const res = await api.sendMessage(schedule.instance, msgType, payload);
+                
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(`API Error ${res.status}: ${errText}`);
+                }
                 successCount++;
                 // Rate limit
                 await new Promise(r => setTimeout(r, CONFIG.rateLimit));
