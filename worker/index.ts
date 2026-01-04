@@ -103,7 +103,7 @@ const processSchedule = async (schedule: Schedule) => {
         // 2. Setup API Client
         const config: EvoConfig = {
             baseUrl: EVOLUTION_URL,
-            apiKey: schedule.api_key || '', // Use the key from schedule
+            apiKey: schedule.api_key || process.env.EVOLUTION_API_KEY || '',
             mode: 'instance',
             instanceName: schedule.instance,
             provider: 'evolution' // Default
