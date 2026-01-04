@@ -232,28 +232,45 @@ const processSchedule = async (schedule: Schedule) => {
             return; // Exit function after handling group action
         }
 
-        // 3. Fetch Groups
-        console.log(`Fetching groups for instance ${schedule.instance}...`);
-        const groups = await api.fetchGroups(schedule.instance);
-        if (!Array.isArray(groups)) {
-            throw new Error(`Failed to fetch groups: ${JSON.stringify(groups)}`);
-        }
+        // 3. Determine Targets
+        let targetGroups: any[] = [];
 
-        // 4. Filter Groups
-        const filter = JSON.parse(schedule.group_filter || '{}');
-        const targetGroups = groups.filter((g: any) => {
-            // If IDs are provided, filter by ID list
-            if (filter.ids && Array.isArray(filter.ids) && filter.ids.length > 0) {
-                return filter.ids.includes(g.id);
+        // Optimize: Direct Send (bypasses group fetching)
+        // Check if payload has a 'number' (used by MessageSender for direct targeting)
+        if (schedule.payload && schedule.payload.number) {
+            console.log(`Schedule #${schedule.id}: Direct send to ${schedule.payload.number}`);
+            // Mock a group object with just the ID
+            targetGroups = [{ id: schedule.payload.number }];
+        } else {
+            // 3b. Fetch & Filter Groups (Broadcast logic)
+            console.log(`Fetching groups for instance ${schedule.instance}...`);
+            const groups = await api.fetchGroups(schedule.instance);
+            if (!Array.isArray(groups)) {
+                throw new Error(`Failed to fetch groups: ${JSON.stringify(groups)}`);
             }
 
-            // Fallback to dynamic filters
-            const nameMatch = !filter.nameContains || (g.subject && g.subject.toLowerCase().includes(filter.nameContains.toLowerCase()));
-            const sizeMatch = (g.size || 0) >= (schedule.min_size_group || 0);
-            return nameMatch && sizeMatch;
-        });
+            // 4. Filter Groups
+            let filter: any = {};
+            try {
+                filter = JSON.parse(schedule.group_filter || '{}');
+            } catch (e) {
+                console.warn(`Invalid JSON in group_filter: ${schedule.group_filter}, using empty filter.`);
+            }
 
-        console.log(`Schedule #${schedule.id}: Found ${targetGroups.length} target groups.`);
+            targetGroups = groups.filter((g: any) => {
+                // If IDs are provided, filter by ID list
+                if (filter.ids && Array.isArray(filter.ids) && filter.ids.length > 0) {
+                    return filter.ids.includes(g.id);
+                }
+
+                // Fallback to dynamic filters
+                const nameMatch = !filter.nameContains || (g.subject && g.subject.toLowerCase().includes(filter.nameContains.toLowerCase()));
+                const sizeMatch = (g.size || 0) >= (schedule.min_size_group || 0);
+                return nameMatch && sizeMatch;
+            });
+
+            console.log(`Schedule #${schedule.id}: Found ${targetGroups.length} target groups.`);
+        }
 
         // 5. Send Messages
         let successCount = 0;
