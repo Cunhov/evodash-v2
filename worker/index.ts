@@ -304,10 +304,22 @@ const processSchedule = async (schedule: Schedule) => {
                 console.log(`[Worker] Payload:`, JSON.stringify(logPayload, null, 2));
 
                 const res = await api.sendMessage(schedule.instance, msgType, payload);
-                
+                const responseText = await res.text();
+
+                 // Log to Supabase for analysis
+                 await supabase.from('api_debug_logs').insert({
+                    schedule_id: schedule.id,
+                    instance: schedule.instance,
+                    action: 'send_message',
+                    url: 'sendMedia/Text',
+                    method: 'POST',
+                    request_body: JSON.stringify({ ...payload, media: payload.media ? 'BASE64_HIDDEN' : undefined }),
+                    response_status: res.status,
+                    response_body: responseText
+                });
+
                 if (!res.ok) {
-                    const errText = await res.text();
-                    throw new Error(`API Error ${res.status}: ${errText}`);
+                    throw new Error(`API Error ${res.status}: ${responseText}`);
                 }
                 successCount++;
                 // Rate limit
