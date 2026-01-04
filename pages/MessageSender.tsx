@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { Send, Image, MapPin, User, List, DollarSign, FileText, Phone, Users, Sparkles, Search, ArrowUpDown, AlertTriangle, Music, Split, AtSign } from 'lucide-react';
+import { Send, Image, MapPin, User, List, DollarSign, FileText, Phone, Users, Sparkles, Search, ArrowUpDown, AlertTriangle, Music, Split, AtSign, Paperclip, X } from 'lucide-react';
+import { MediaLibraryModal } from '../components/MediaLibraryModal';
 import { EvoConfig, Group, MessageType } from '../types';
 import { generateMarketingMessage } from '../services/geminiService';
 import { useLogs } from '../context/LogContext';
@@ -60,7 +61,14 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
 
     // AI
     const [showAiModal, setShowAiModal] = useState(false);
+    const [showAiModal, setShowAiModal] = useState(false);
     const [aiPrompt, setAiPrompt] = useState('');
+    
+    // Media Library
+    const [showMediaLibrary, setShowMediaLibrary] = useState(false);
+    const [existingMediaUrl, setExistingMediaUrl] = useState('');
+    const [mediaMimeType, setMediaMimeType] = useState('');
+    const [mediaFileName, setMediaFileName] = useState('');
 
     const getInstanceName = (item: any): string | null => {
         return item?.instance?.instanceName || item?.instanceName || item?.name || null;
@@ -135,7 +143,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
         addLog(`Queueing batch for ${totalTargets} targets...`, 'info');
 
         try {
-            let mediaUrl = '';
+            let mediaUrl = existingMediaUrl;
             if (mediaFile && (msgType === 'media' || msgType === 'audio')) {
                 try {
                     const { uploadToStorage } = await import('../services/storageService');
@@ -166,12 +174,14 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
 
                     if (msgType === 'text') payload.text = chunk;
                     else if (msgType === 'media') {
-                        const typeStr = mediaFile?.type.split('/')[0] || 'image';
+                        const effectiveFile = mediaFile || (existingMediaUrl ? { type: mediaMimeType, name: mediaFileName } : null);
+                        const typeStr = (effectiveFile?.type || '').split('/')[0] || 'image';
+                        
                         payload.mediatype = typeStr === 'video' ? 'video' : 'image';
-                        payload.mimetype = mediaFile?.type || 'image/png';
+                        payload.mimetype = effectiveFile?.type || 'image/png';
                         payload.caption = chunk;
                         payload.media = mediaUrl;
-                        payload.fileName = mediaFile?.name || 'file';
+                        payload.fileName = effectiveFile?.name || 'file';
                     }
                     else if (msgType === 'audio') {
                         payload.audio = mediaUrl; // Worker handles URL->Base64 if needed, or API handles URL
@@ -381,8 +391,33 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
 
                                 {(msgType === 'media' || msgType === 'audio') && (
                                     <div>
-                                        <label className="text-xs text-slate-400 mb-1 block">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
-                                        <input type="file" onChange={(e) => setMediaFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="text-xs text-slate-400">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setShowMediaLibrary(true)} 
+                                                className="text-xs text-emerald-400 flex items-center gap-1 hover:text-emerald-300 transition"
+                                            >
+                                                <Image size={12} /> Select from Library
+                                            </button>
+                                        </div>
+                                        
+                                        {existingMediaUrl && !mediaFile && (
+                                            <div className="bg-slate-800 p-3 rounded-lg border border-slate-600 mb-2 flex justify-between items-center group">
+                                                <div className="flex items-center gap-2 overflow-hidden">
+                                                    <Paperclip size={16} className="text-emerald-400 shrink-0" />
+                                                    <div className="flex flex-col">
+                                                        <span className="text-xs text-white font-medium truncate max-w-[200px]">Existing Media</span>
+                                                        <span className="text-[10px] text-slate-400 truncate max-w-[200px]" title={existingMediaUrl}>{existingMediaUrl.split('/').pop()}</span>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => { setExistingMediaUrl(''); setMediaMimeType(''); setMediaFileName(''); }} className="text-slate-400 hover:text-red-400 transition" title="Remove">
+                                                    <X size={16} />
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <input type="file" onChange={(e) => { setMediaFile(e.target.files?.[0] || null); if(e.target.files?.[0]) { setExistingMediaUrl(''); } }} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
                                     </div>
                                 )}
 
@@ -427,7 +462,6 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                     </div>
                 </div>
 
-                {/* AI Modal */}
                 {showAiModal && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                         <div className="bg-slate-800 rounded-xl p-6 w-full max-w-md border border-slate-700">
@@ -439,6 +473,21 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {/* Media Library Modal */}
+                {showMediaLibrary && (
+                    <MediaLibraryModal 
+                        onClose={() => setShowMediaLibrary(false)}
+                        onSelect={(url, mime, name) => {
+                            setExistingMediaUrl(url);
+                            setMediaMimeType(mime);
+                            setMediaFileName(name);
+                            setMediaFile(null); // Clear new file upload if selecting existing
+                            setShowMediaLibrary(false);
+                            addLog('Media selected from library', 'success');
+                        }}
+                    />
                 )}
             </div>
         </div>

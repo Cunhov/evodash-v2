@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle, Globe, X, GitMerge } from 'lucide-react';
+import { Calendar, Clock, Filter, Save, Trash2, AlertCircle, CheckCircle, RefreshCw, Plus, Search, FileText, Image, Music, List, DollarSign, User, MapPin, Split, AtSign, Sparkles, ArrowUpDown, AlertTriangle, Globe, X, GitMerge, Paperclip } from 'lucide-react';
 import { EvoConfig, Group, Schedule, MessageType, Template } from '../types';
 import { WorkflowEditor } from '../components/WorkflowEditor';
 import { getApiClient } from '../services/apiAdapter';
@@ -7,6 +7,7 @@ import { supabase } from '../services/supabaseClient';
 import { useLogs } from '../context/LogContext';
 import { generateMarketingMessage } from '../services/geminiService';
 import { MediaUploader } from '../components/MediaUploader';
+import { MediaLibraryModal } from '../components/MediaLibraryModal';
 import { useGroupCache } from '../context/GroupCacheContext';
 import * as uuid from 'uuid';
 
@@ -61,6 +62,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
     // Rich Message States
     const [mediaFile, setMediaFile] = useState<File | null>(null);
+    const [existingMediaUrl, setExistingMediaUrl] = useState('');
+    const [mediaMimeType, setMediaMimeType] = useState('');
+    const [mediaFileName, setMediaFileName] = useState('');
     const [pollName, setPollName] = useState('');
     const [pollOptions, setPollOptions] = useState<string[]>(['Option 1', 'Option 2']);
     const [pixKey, setPixKey] = useState('');
@@ -79,6 +83,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
     const [newTemplateName, setNewTemplateName] = useState('');
     const [newTemplateContent, setNewTemplateContent] = useState('');
     const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+    const [showMediaLibrary, setShowMediaLibrary] = useState(false);
 
     const fetchTemplates = async () => {
         const { data } = await supabase.from('templates').select('*').order('created_at', { ascending: false });
@@ -263,8 +268,28 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             .eq('schedule_id', schedule.id);
 
         if (error || !failures || failures.length === 0) {
-            alert('No specific failure records found for this schedule.');
-            return;
+            // Fallback: If no specific failures, but user wants to retry (e.g. silent failure confirmed by user),
+            // we load the original targets from group_filter.
+            const confirmRetryAll = confirm('No specific failure records found (system thought it was sent). Do you want to resend to ALL original groups?');
+            if (!confirmRetryAll) return;
+
+            try {
+                const filter = JSON.parse(schedule.group_filter || '{}');
+                if (filter.ids && Array.isArray(filter.ids) && filter.ids.length > 0) {
+                    handleEdit(schedule);
+                    setEditingId(null); // Create new
+                    setSelectedGroupIds(new Set(filter.ids));
+                    setMessage(`[RETRY] ${schedule.text}`);
+                    addLog(`Loaded ${filter.ids.length} original groups for retry.`, 'success');
+                    return;
+                } else {
+                    alert('Could not recover original group list from filter.');
+                    return;
+                }
+            } catch (e) {
+                alert('Invalid group filter data.');
+                return;
+            }
         }
 
         const failedIds = failures.map(f => f.group_id);
@@ -326,6 +351,12 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             const loc = payload.locationMessage || {};
             setLatitude(loc.latitude?.toString() || '');
             setLongitude(loc.longitude?.toString() || '');
+        } else if (schedule.type === 'media') {
+            setExistingMediaUrl(payload.media || '');
+            setMediaMimeType(payload.mimetype || '');
+            setMediaFileName(payload.fileName || '');
+        } else if (schedule.type === 'audio') {
+            setExistingMediaUrl(payload.audio || '');
         }
 
         setView('create');
@@ -420,9 +451,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                 // payload = { text: chunkText }; 
                 // Based on existing code, text is in the root 'text' col, payload might be empty for simple text
             } else if (msgType === 'media') {
-                const typeStr = mediaFile?.type.split('/')[0] || 'image';
+                const effectiveFile = mediaFile || (existingMediaUrl ? { type: mediaMimeType, name: mediaFileName } : null);
+                
+                const typeStr = (effectiveFile?.type || '').split('/')[0] || 'image';
                 // Sanitize filename: remove special chars, truncate to 50 chars, preserve extension
-                const originalName = mediaFile?.name || 'file';
+                const originalName = effectiveFile?.name || 'file';
                 const ext = originalName.split('.').pop() || 'png'; // Default to png if no ext
                 const name = originalName.replace(`.${ext}`, '').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
                 const saneFileName = `${name}.${ext}`;
@@ -433,13 +466,13 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
                 payload = {
                     mediatype: mediaType,
-                    mimetype: mediaFile?.type || 'image/png',
-                    caption: chunkText, // Use chunk as caption if splitting media captions? (Unlikely for media but safe)
-                    media: mediaUrl,
+                    mimetype: effectiveFile?.type || mediaMimeType || 'image/png',
+                    caption: chunkText, 
+                    media: mediaUrl || existingMediaUrl,
                     fileName: saneFileName
                 };
             } else if (msgType === 'audio') {
-                payload = { audio: mediaUrl };
+                payload = { audio: mediaUrl || existingMediaUrl };
             } else if (msgType === 'poll') {
                 payload = {
                     name: pollName,
@@ -519,7 +552,12 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
             setEditingBatchId(null);
             setMessage('');
             setRecurrenceRule('');
+            setRecurrenceRule('');
             setSelectedGroupIds(new Set());
+            setMediaFile(null);
+            setExistingMediaUrl('');
+            setMediaMimeType('');
+            setMediaFileName('');
         }
     };
 
@@ -592,7 +630,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                     <button onClick={() => { setView('list'); setEditingId(null); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'list' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Calendar size={18} /> Calendar
                     </button>
-                    <button onClick={() => { setView('create'); setEditingId(null); setMessage(''); setRecurrenceRule(''); setSelectedGroupIds(new Set()); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    <button onClick={() => { setView('create'); setEditingId(null); setMessage(''); setRecurrenceRule(''); setSelectedGroupIds(new Set()); setMediaFile(null); setExistingMediaUrl(''); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'create' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
                         <Plus size={18} /> New Schedule
                     </button>
                     <button onClick={() => { setView('workflow'); }} className={`px-4 py-2 rounded-lg flex items-center gap-2 ${view === 'workflow' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
@@ -920,7 +958,30 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
                             {(msgType === 'media' || msgType === 'audio') && (
                                 <div className="space-y-2">
-                                    <label className="text-xs text-slate-400 mb-1 block">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <label className="text-xs text-slate-400">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowMediaLibrary(true)} 
+                                            className="text-xs text-emerald-400 flex items-center gap-1 hover:text-emerald-300 transition"
+                                        >
+                                            <Image size={12} /> Select from Library
+                                        </button>
+                                    </div>
+                                    {existingMediaUrl && !mediaFile && (
+                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-600 mb-2 flex justify-between items-center group">
+                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                <Paperclip size={16} className="text-emerald-400 shrink-0" />
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs text-white font-medium truncate max-w-[200px]">Existing Media</span>
+                                                    <span className="text-[10px] text-slate-400 truncate max-w-[200px]" title={existingMediaUrl}>{existingMediaUrl.split('/').pop()}</span>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => { setExistingMediaUrl(''); setMediaMimeType(''); setMediaFileName(''); }} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 transition">
+                                                Remove
+                                            </button>
+                                        </div>
+                                    )}
                                     <MediaUploader
                                         file={mediaFile}
                                         onFileSelect={setMediaFile}
@@ -1015,6 +1076,21 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                         </button>
                     </div>
                 </div>
+            )}
+
+            {/* Media Library Modal */}
+            {showMediaLibrary && (
+                <MediaLibraryModal 
+                    onClose={() => setShowMediaLibrary(false)}
+                    onSelect={(url, mime, name) => {
+                        setExistingMediaUrl(url);
+                        setMediaMimeType(mime);
+                        setMediaFileName(name);
+                        setMediaFile(null); // Clear new file upload if selecting existing
+                        setShowMediaLibrary(false);
+                        addLog('Media selected from library', 'success');
+                    }}
+                />
             )}
 
             {/* Preview Modal */}
