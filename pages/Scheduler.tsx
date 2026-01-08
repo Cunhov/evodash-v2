@@ -432,17 +432,25 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         let successCount = 0;
         let errorCount = 0;
 
+        const chunkUuids = chunks.map(() => uuid.v4());
+
         for (let i = 0; i < chunks.length; i++) {
             const chunkText = chunks[i];
 
             // Add delay for subsequent chunks to ensure order
-            const chunkDateTime = new Date(baseDateTime.getTime() + (i * 2000));
+            // Increased to 3000ms to match MessageSender and strictly enforce order
+            const chunkDateTime = new Date(baseDateTime.getTime() + (i * 3000));
+
+            const myUuid = chunkUuids[i];
+            const dependsOnUuid = i > 0 ? chunkUuids[i - 1] : undefined;
 
             let payload: any = {
                 batchId,
                 masterText: batchId ? masterText : undefined,
                 chunkIndex: i,
-                totalChunks: chunks.length
+                totalChunks: chunks.length,
+                myUuid,
+                dependsOnUuid
             };
 
             if (msgType === 'text') {
@@ -452,7 +460,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                 // Based on existing code, text is in the root 'text' col, payload might be empty for simple text
             } else if (msgType === 'media') {
                 const effectiveFile = mediaFile || (existingMediaUrl ? { type: mediaMimeType, name: mediaFileName } : null);
-                
+
                 const typeStr = (effectiveFile?.type || '').split('/')[0] || 'image';
                 // Sanitize filename: remove special chars, truncate to 50 chars, preserve extension
                 const originalName = effectiveFile?.name || 'file';
@@ -467,7 +475,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                 payload = {
                     mediatype: mediaType,
                     mimetype: effectiveFile?.type || mediaMimeType || 'image/png',
-                    caption: chunkText, 
+                    caption: chunkText,
                     media: mediaUrl || existingMediaUrl,
                     fileName: saneFileName
                 };
@@ -960,9 +968,9 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-center mb-1">
                                         <label className="text-xs text-slate-400">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
-                                        <button 
-                                            type="button" 
-                                            onClick={() => setShowMediaLibrary(true)} 
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowMediaLibrary(true)}
                                             className="text-xs text-emerald-400 flex items-center gap-1 hover:text-emerald-300 transition"
                                         >
                                             <Image size={12} /> Select from Library
@@ -1080,7 +1088,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
 
             {/* Media Library Modal */}
             {showMediaLibrary && (
-                <MediaLibraryModal 
+                <MediaLibraryModal
                     onClose={() => setShowMediaLibrary(false)}
                     onSelect={(url, mime, name) => {
                         setExistingMediaUrl(url);

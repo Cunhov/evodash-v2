@@ -86,7 +86,42 @@ const handleRecurrence = async (schedule: Schedule) => {
 const processSchedule = async (schedule: Schedule) => {
     console.log(`Processing schedule #${schedule.id}`);
 
-    // 1. Lock the schedule
+    // 1. Dependency Check
+    if (schedule.payload && schedule.payload.dependsOnUuid) {
+        // Find parent schedule by payload->>myUuid
+        // Note: This requires a jsonb query.
+        const { data: parentData, error: parentError } = await supabase
+            .from('schedules')
+            .select('status, id')
+            .eq('payload->>myUuid', schedule.payload.dependsOnUuid)
+            .maybeSingle();
+
+        if (parentError) {
+            console.error(`[Worker] Error checking dependency for #${schedule.id}:`, parentError);
+            return; // Skip and retry later?
+        }
+
+        if (!parentData) {
+            // Parent not found? This is weird. Maybe it was deleted?
+            // Fail this one to avoid stuck state.
+            console.error(`[Worker] Dependency ${schedule.payload.dependsOnUuid} not found for #${schedule.id}. Marking as failed.`);
+            await supabase.from('schedules').update({ status: 'failed', error_message: 'Parent dependency missing' }).eq('id', schedule.id);
+            return;
+        }
+
+        if (parentData.status === 'failed' || parentData.status === 'cancelled') {
+            console.log(`[Worker] Parent #${parentData.id} failed/cancelled. Cancelling #${schedule.id}.`);
+            await supabase.from('schedules').update({ status: 'cancelled', error_message: 'Parent message failed' }).eq('id', schedule.id);
+            return;
+        }
+
+        if (parentData.status !== 'sent') {
+            console.log(`[Worker] Dependency #${parentData.id} is ${parentData.status}. Waiting...`);
+            return; // Skip this iteration, wait for parent
+        }
+    }
+
+    // 2. Lock the schedule
     const { data, error: lockError } = await supabase
         .from('schedules')
         .update({ status: 'processing' })

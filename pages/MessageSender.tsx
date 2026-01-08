@@ -63,7 +63,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
     const [showAiModal, setShowAiModal] = useState(false);
 
     const [aiPrompt, setAiPrompt] = useState('');
-    
+
     // Media Library
     const [showMediaLibrary, setShowMediaLibrary] = useState(false);
     const [existingMediaUrl, setExistingMediaUrl] = useState('');
@@ -160,23 +160,30 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
             const batchId = crypto.randomUUID(); // Group these for simpler tracking if needed later
 
             targets.forEach((number, tIdx) => {
+                const chunkUuids = textChunks.map(() => crypto.randomUUID());
+
                 textChunks.forEach((chunk, cIdx) => {
                     // Calculate stagaggered delays to prevent "thundering herd" on the worker
-                    // Even though worker has rate limit, staggering send_time helps natural ordering
-                    const staggerMs = (tIdx * totalChunks + cIdx) * 100;
+                    // Increased from 100ms to 3000ms to ensure strict sequential processing by the worker (which runs every 5s)
+                    const staggerMs = (tIdx * totalChunks + cIdx) * 3000;
                     const sendAt = new Date(Date.now() + staggerMs).toISOString();
+
+                    const myUuid = chunkUuids[cIdx];
+                    const dependsOnUuid = cIdx > 0 ? chunkUuids[cIdx - 1] : undefined;
 
                     let payload: any = {
                         number: number,
                         delay: 1200, // API delay
-                        mentionsEveryOne: mentionAll
+                        mentionsEveryOne: mentionAll,
+                        myUuid,
+                        dependsOnUuid
                     };
 
                     if (msgType === 'text') payload.text = chunk;
                     else if (msgType === 'media') {
                         const effectiveFile = mediaFile || (existingMediaUrl ? { type: mediaMimeType, name: mediaFileName } : null);
                         const typeStr = (effectiveFile?.type || '').split('/')[0] || 'image';
-                        
+
                         payload.mediatype = typeStr === 'video' ? 'video' : 'image';
                         payload.mimetype = effectiveFile?.type || 'image/png';
                         payload.caption = chunk;
@@ -394,15 +401,15 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                                     <div>
                                         <div className="flex justify-between items-center mb-1">
                                             <label className="text-xs text-slate-400">Upload File {msgType === 'audio' ? '(MP3/WAV)' : '(Image/Video/Doc)'}</label>
-                                            <button 
-                                                type="button" 
-                                                onClick={() => setShowMediaLibrary(true)} 
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowMediaLibrary(true)}
                                                 className="text-xs text-emerald-400 flex items-center gap-1 hover:text-emerald-300 transition"
                                             >
                                                 <Image size={12} /> Select from Library
                                             </button>
                                         </div>
-                                        
+
                                         {existingMediaUrl && !mediaFile && (
                                             <div className="bg-slate-800 p-3 rounded-lg border border-slate-600 mb-2 flex justify-between items-center group">
                                                 <div className="flex items-center gap-2 overflow-hidden">
@@ -418,7 +425,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
                                             </div>
                                         )}
 
-                                        <input type="file" onChange={(e) => { setMediaFile(e.target.files?.[0] || null); if(e.target.files?.[0]) { setExistingMediaUrl(''); } }} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
+                                        <input type="file" onChange={(e) => { setMediaFile(e.target.files?.[0] || null); if (e.target.files?.[0]) { setExistingMediaUrl(''); } }} className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
                                     </div>
                                 )}
 
@@ -478,7 +485,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
 
                 {/* Media Library Modal */}
                 {showMediaLibrary && (
-                    <MediaLibraryModal 
+                    <MediaLibraryModal
                         onClose={() => setShowMediaLibrary(false)}
                         onSelect={(url, mime, name) => {
                             setExistingMediaUrl(url);
