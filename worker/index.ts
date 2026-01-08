@@ -322,8 +322,8 @@ const processSchedule = async (schedule: Schedule) => {
                 const res = await api.sendMessage(schedule.instance, msgType, payload);
                 const responseText = await res.text();
 
-                 // Log to Supabase for analysis
-                 await supabase.from('api_debug_logs').insert({
+                // Log to Supabase for analysis
+                await supabase.from('api_debug_logs').insert({
                     schedule_id: schedule.id,
                     instance: schedule.instance,
                     action: 'send_message',
@@ -391,7 +391,9 @@ const run = async () => {
             .from('schedules')
             .select('*')
             .eq('status', 'pending')
-            .lte('enviar_em', now);
+            .lte('enviar_em', now)
+            .order('enviar_em', { ascending: true })
+            .order('id', { ascending: true }); // Tie-breaker
 
         if (error) {
             console.error('Error fetching schedules:', error);
@@ -400,9 +402,10 @@ const run = async () => {
 
         if (schedules && schedules.length > 0) {
             console.log(`Found ${schedules.length} pending schedules.`);
-            // Execute in parallel (independent processes logic)
-            // In Node single thread, Promise.all is concurrent.
-            await Promise.all(schedules.map(s => processSchedule(s)));
+            // Execute sequentially to ensure order (crucial for split messages)
+            for (const schedule of schedules) {
+                await processSchedule(schedule);
+            }
         }
     } catch (e) {
         console.error('Worker loop error:', e);
