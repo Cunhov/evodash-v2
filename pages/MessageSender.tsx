@@ -132,7 +132,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
         // Prepare message chunks
         let textChunks: string[] = [message];
         if (msgType === 'text' && splitByLines) {
-            textChunks = message.split('\n').filter(line => line.trim() !== '');
+            textChunks = message.split(/\n{2,}/).filter(line => line.trim() !== '');
             if (textChunks.length === 0) textChunks = [message];
         }
 
@@ -393,7 +393,7 @@ const MessageSender: React.FC<MessageSenderProps> = ({ config }) => {
 
                                 {splitByLines && msgType === 'text' && (
                                     <div className="text-xs text-blue-400/80 bg-blue-500/5 p-2 rounded">
-                                        Each line break will be sent as a separate message with a 3-second delay.
+                                        Double line breaks (an empty line) will be sent as a separate message with a 3-second delay.
                                     </div>
                                 )}
 

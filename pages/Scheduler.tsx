@@ -406,7 +406,7 @@ const Scheduler: React.FC<SchedulerProps> = ({ config }) => {
         // 1. Prepare chunks
         let chunks: string[] = [message];
         if (msgType === 'text' && splitByLines) {
-            chunks = message.split('\n').filter(line => line.trim() !== '');
+            chunks = message.split(/\n{2,}/).filter(line => line.trim() !== '');
             if (chunks.length === 0) chunks = [message];
         }
 
